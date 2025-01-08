@@ -1,37 +1,76 @@
-# This is the SAM template that represents the architecture of your serverless application
-# https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-template-basics.html
-
-# The AWSTemplateFormatVersion identifies the capabilities of the template
-# https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/format-version-structure.html
+# Do Not Touch This unless you know what you are doing! Unverified Errors can lead to Deployment Failure or Deletion of Resources 
 AWSTemplateFormatVersion: 2010-09-09
-Description: >-
-  Start from scratch starter project
-
-# Transform section specifies one or more macros that AWS CloudFormation uses to process your template
-# https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/transform-section-structure.html
+Description: A Serverless & Loosely Coupled Video Transcoding & Delivery Project
 Transform: AWS::Serverless-2016-10-31
 
-# Shared configuration for all resources, more in
-# https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
 Globals:
   Function:
-    # The PermissionsBoundary allows users to safely develop with their function's permissions constrained
-    # to their current application. All the functions and roles in this application have to include it and
-    # it has to be manually updated when you add resources to your application.
-    # More information in https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_boundaries.html
-    PermissionsBoundary: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${AppId}-${AWS::Region}-PermissionsBoundary'
+    PermissionsBoundary: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${AppId}-${AWS::Region}-PermissionsBoundary
+    LoggingConfig:
+      ApplicationLogLevel: WARN
+      LogFormat: JSON
+      LogGroup: !Ref BackendLogGroup
+      SystemLogLevel: WARN
+    Tags:
+      Application: !Sub ${AppId}
+      Environment: Production
 
 Parameters:
   AppId:
     Type: String
 
-# Resources declares the AWS resources that you want to include in the stack
-# https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/resources-section-structure.html
 Resources:
-  # Each Lambda function is defined by properties:
-  # https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
-
-  # This is a Lambda function config associated with the source code: hello-from-lambda.js
+  # Common Logging Group for all lambda
+  BackendLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AppId}-Backend-Function-Logs
+  # User Pool
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${AppId}-userpool
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: admin_only
+            Priority: 1
+      DeletionProtection: ACTIVE
+      MfaConfiguration: 'OFF'
+      UsernameConfiguration:
+        CaseSensitive: true
+      UsernameAttributes:
+        - email
+      Schema:
+        - AttributeDataType: String
+          Mutable: true
+          Name: email
+          Required: true
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: false
+          RequireNumbers: false
+          RequireSymbols: false
+          RequireUppercase: false
+  # User Pool Client
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub ${AppId}-client
+      AccessTokenValidity: 24
+      IdTokenValidity: 24
+      RefreshTokenValidity: 365
+      SupportedIdentityProviders:
+        - COGNITO
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      PreventUserExistenceErrors: ENABLED
   helloFromLambdaFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -42,5 +81,4 @@ Resources:
       Timeout: 60
       Description: A Lambda function that returns a static string.
       Policies:
-        # Give Lambda basic execution Permission to the helloFromLambda
         - AWSLambdaBasicExecutionRole
