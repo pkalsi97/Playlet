@@ -294,7 +294,7 @@ Resources:
         Version: '2012-10-17'
         Statement:
           - Principal: '*'
-            Action: s3:*
+            Action: '*'
             Effect: Deny
             Resource:
               - !GetAtt TransportStorage.Arn
@@ -302,8 +302,3 @@ Resources:
             Condition:
               Bool:
                 aws:SecureTransport: 'false'
-          - Principal: '*'
-            Action: s3:PutObject
-            Effect: Allow
-            Resource:
-              - !Sub ${TransportStorage.Arn}/*
