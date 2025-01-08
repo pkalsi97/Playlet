@@ -9,7 +9,7 @@ Globals:
     LoggingConfig:
       ApplicationLogLevel: WARN
       LogFormat: JSON
-      LogGroup: !Ref BackendLogGroup
+      LogGroup: !Ref LambdaFunctionsLogGroup
       SystemLogLevel: WARN
     Tags:
       Application: !Sub ${AppId}
