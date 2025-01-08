@@ -1,4 +1,4 @@
-# Do Not Touch This unless you know what you are doing! Unverified Errors can lead to Deployment Failure or Deletion of Resources 
+# Do Not Touch This unless you know what you are doing! Unverified aActions can lead to Deployment Failure or Deletion of Resources 
 AWSTemplateFormatVersion: 2010-09-09
 Description: A Serverless & Loosely Coupled Video Transcoding & Delivery Project
 Transform: AWS::Serverless-2016-10-31
@@ -9,7 +9,7 @@ Globals:
     LoggingConfig:
       ApplicationLogLevel: WARN
       LogFormat: JSON
-      LogGroup: !Ref LambdaFunctionsLogGroup
+      LogGroup: !Ref BackendLogGroup
       SystemLogLevel: WARN
     Tags:
       Application: !Sub ${AppId}
@@ -43,7 +43,7 @@ Parameters:
 
 Resources:
   # Common Logging Group for all lambda
-  LambdaFunctionsLogGroup:
+  BackendLogGroup:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Retain
     Properties:
@@ -144,7 +144,7 @@ Resources:
       Environment:
         Variables:
           USERPOOLCLIENT_USER_POOL_CLIENT_ID: !Ref UserPoolClient
-    # Upload Handler Lambda Function
+  # Upload Handler Lambda Function
   UploadHandler:
     Type: AWS::Serverless::Function
     Properties:
