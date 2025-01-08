@@ -8,11 +8,11 @@ phases:
       #- npm run test
   build:
     commands:
-      #- npx tsc
+      - npx tsc
       - aws cloudformation package --template template.yml --s3-bucket $S3_BUCKET --output-template-file template-export.yml
   post_build:
     commands:
-      #- npm prune --omit=dev
+      - npm prune --omit=dev
 artifacts:
   files:
     - template-export.yml
