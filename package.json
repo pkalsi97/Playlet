@@ -16,5 +16,10 @@
     "main": "index.js",
     "keywords": [],
     "author": "",
-    "license": "ISC"
+    "license": "ISC",
+    "dependencies": {
+        "@aws-sdk/client-cognito-identity-provider": "^3.723.0",
+        "@aws-sdk/client-dynamodb": "^3.724.0",
+        "@aws-sdk/client-lambda": "^3.723.0"
+    }
 }
