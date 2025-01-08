@@ -14,6 +14,28 @@ Globals:
     Tags:
       Application: !Sub ${AppId}
       Environment: Production
+  Api:
+    EndpointConfiguration: REGIONAL
+    TracingEnabled: true
+    Cors:
+      AllowOrigin: '''*'''
+      AllowHeaders: '''Content-Type, Authorization, X-Access-Token'''
+      AllowMethods: '''POST'''
+      MaxAge: 5
+    MethodSettings:
+      - ResourcePath: /*
+        HttpMethod: '*'
+        LoggingLevel: ERROR
+        DataTraceEnabled: true
+    Auth:
+      Authorizers:
+        Cognito-playlet:
+          UserPoolArn: !Sub arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPool}
+          IdentitySource: $request.header.Authorization
+          JwtConfiguration:
+            Audience:
+              - !Ref UserPoolClient
+            Issuer: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}
 
 Parameters:
   AppId:
@@ -71,14 +93,145 @@ Resources:
         - ALLOW_USER_PASSWORD_AUTH
         - ALLOW_REFRESH_TOKEN_AUTH
       PreventUserExistenceErrors: ENABLED
-  helloFromLambdaFunction:
+  # Auth Handler Lambda Function
+  AuthHandler:
     Type: AWS::Serverless::Function
     Properties:
+      Description: Authentication & Authorization
       CodeUri: ./
-      Handler: src/handlers/hello-from-lambda.helloFromLambdaHandler
+      Handler: dist/handlers/auth-handler.authHandler
       Runtime: nodejs18.x
-      MemorySize: 128
+      MemorySize: 1024
       Timeout: 60
-      Description: A Lambda function that returns a static string.
+      Tracing: Active
+      Architectures:
+        - arm64
       Policies:
         - AWSLambdaBasicExecutionRole
+        - AmazonCognitoPowerUser
+        - AWSXrayWriteOnlyAccess
+      Events:
+        AuthAPIsPOSTv1authsignup:
+          Type: Api
+          Properties:
+            Path: /v1/auth/signup
+            Method: POST
+            RestApiId: !Ref AuthAPIs
+        AuthAPIsPOSTv1authlogin:
+          Type: Api
+          Properties:
+            Path: /v1/auth/login
+            Method: POST
+            RestApiId: !Ref AuthAPIs
+        AuthAPIsPOSTv1authforgetpassword:
+          Type: Api
+          Properties:
+            Path: /v1/auth/forgetpassword
+            Method: POST
+            RestApiId: !Ref AuthAPIs
+        AuthAPIsPOSTv1authlogout:
+          Type: Api
+          Properties:
+            Path: /v1/auth/logout
+            Method: POST
+            RestApiId: !Ref AuthAPIs
+        AuthAPIsPOSTv1authrefreshtoken:
+          Type: Api
+          Properties:
+            Path: /v1/auth/refreshtoken
+            Method: POST
+            RestApiId: !Ref AuthAPIs
+    # Upload Handler Lambda Function
+  UploadHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Upload Management
+      CodeUri: ./
+      Handler: dist/handlers/upload-handler.uploadHandler
+      Runtime: nodejs18.x
+      MemorySize: 2048
+      Timeout: 60
+      Tracing: Active
+      Architectures:
+        - arm64
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - AWSXrayWriteOnlyAccess
+      Events:
+        UserActionsAPIsPOSTv1useruploadrequest:
+          Type: Api
+          Properties:
+            Path: /v1/user/upload-request
+            Method: POST
+            RestApiId: !Ref UserActionsAPIs
+  #AUTH APIs
+  AuthAPIs:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub
+        - ${ResourceName} From Stack ${AWS::StackName}
+        - ResourceName: AuthAPIs
+      StageName: Prod
+      DefinitionBody:
+        openapi: '3.0'
+        info: {}
+        paths:
+          /v1/auth/signup:
+            post:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthHandler.Arn}/invocations
+              responses: {}
+          /v1/auth/login:
+            post:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthHandler.Arn}/invocations
+              responses: {}
+          /v1/auth/forgetpassword:
+            post:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthHandler.Arn}/invocations
+              responses: {}
+          /v1/auth/logout:
+            post:
+              security:
+                - Cognito-playlet: []
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthHandler.Arn}/invocations
+              responses: {}
+          /v1/auth/refreshtoken:
+            post:
+              security:
+                - Cognito-playlet: []
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthHandler.Arn}/invocations
+              responses: {}
+  UserActionsAPIs:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub
+        - ${ResourceName} From Stack ${AWS::StackName}
+        - ResourceName: UserActionsAPIs
+      StageName: Prod
+      DefinitionBody:
+        openapi: '3.0'
+        info: {}
+        paths:
+          /v1/user/upload-request:
+            post:
+              security:
+                - Cognito-playlet: []
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UploadHandler.Arn}/invocations
+              responses: {}
