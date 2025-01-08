@@ -43,7 +43,7 @@ Parameters:
 
 Resources:
   # Common Logging Group for all lambda
-  BackendLogGroup:
+  LambdaFunctionsLogGroup:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Retain
     Properties:
@@ -141,6 +141,9 @@ Resources:
             Path: /v1/auth/refreshtoken
             Method: POST
             RestApiId: !Ref AuthAPIs
+      Environment:
+        Variables:
+          USERPOOLCLIENT_USER_POOL_CLIENT_ID: !Ref UserPoolClient
     # Upload Handler Lambda Function
   UploadHandler:
     Type: AWS::Serverless::Function
@@ -157,6 +160,32 @@ Resources:
       Policies:
         - AWSLambdaBasicExecutionRole
         - AWSXrayWriteOnlyAccess
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:GetObjectAcl
+                - s3:GetObjectLegalHold
+                - s3:GetObjectRetention
+                - s3:GetObjectTorrent
+                - s3:GetObjectVersion
+                - s3:GetObjectVersionAcl
+                - s3:GetObjectVersionForReplication
+                - s3:GetObjectVersionTorrent
+                - s3:ListBucket
+                - s3:ListBucketMultipartUploads
+                - s3:ListBucketVersions
+                - s3:ListMultipartUploadParts
+                - s3:AbortMultipartUpload
+                - s3:DeleteObject
+                - s3:DeleteObjectVersion
+                - s3:PutObject
+                - s3:PutObjectLegalHold
+                - s3:PutObjectRetention
+                - s3:RestoreObject
+              Resource:
+                - !Sub arn:${AWS::Partition}:s3:::${TransportStorage}
+                - !Sub arn:${AWS::Partition}:s3:::${TransportStorage}/*
       Events:
         UserActionsAPIsPOSTv1useruploadrequest:
           Type: Api
@@ -164,6 +193,10 @@ Resources:
             Path: /v1/user/upload-request
             Method: POST
             RestApiId: !Ref UserActionsAPIs
+      Environment:
+        Variables:
+          TRANSPORTSTORAGE_BUCKET_NAME: !Ref TransportStorage
+          TRANSPORTSTORAGE_BUCKET_ARN: !GetAtt TransportStorage.Arn
   #AUTH APIs
   AuthAPIs:
     Type: AWS::Serverless::Api
@@ -235,3 +268,42 @@ Resources:
                 type: aws_proxy
                 uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UploadHandler.Arn}/invocations
               responses: {}
+  #S3 Bucket Used For Uploads & Its Policy
+  TransportStorage:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-transport-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: alias/aws/s3
+      PublicAccessBlockConfiguration:
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Status: Enabled
+            ExpirationInDays: 3
+  TransportStorageBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref TransportStorage
+      PolicyDocument:
+        Id: RequireEncryptionInTransit
+        Version: '2012-10-17'
+        Statement:
+          - Principal: '*'
+            Action: s3:*
+            Effect: Deny
+            Resource:
+              - !GetAtt TransportStorage.Arn
+              - !Sub ${TransportStorage.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+          - Principal: '*'
+            Action: s3:PutObject
+            Effect: Allow
+            Resource:
+              - !Sub ${TransportStorage.Arn}/*
