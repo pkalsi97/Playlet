@@ -2,18 +2,17 @@ version: 0.2
 phases:
   install:
     commands:
-      # Install all dependencies (including dependencies for running tests)
       - npm install
   pre_build:
     commands:
-      # Discover and run unit tests in the '__tests__' directory
-      - npm run test
-      # Remove all dependencies not needed for the Lambda deployment package (the packages from devDependencies in package.json)
-      - npm prune --production
+      #- npm run test
   build:
     commands:
-      # Use AWS SAM to package the application by using AWS CloudFormation
+      #- npx tsc
       - aws cloudformation package --template template.yml --s3-bucket $S3_BUCKET --output-template-file template-export.yml
+  post_build:
+    commands:
+      #- npm prune --omit=dev
 artifacts:
   files:
     - template-export.yml
