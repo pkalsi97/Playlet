@@ -57,8 +57,10 @@ Resources:
         AllowAdminCreateUserOnly: false
       AccountRecoverySetting:
         RecoveryMechanisms:
-          - Name: admin_only
+          - Name: verified_email
             Priority: 1
+          - Name: admin_only
+            Priority: 2
       DeletionProtection: ACTIVE
       MfaConfiguration: 'OFF'
       UsernameConfiguration:
@@ -123,22 +125,28 @@ Resources:
             Path: /v1/auth/login
             Method: POST
             RestApiId: !Ref AuthAPIs
-        AuthAPIsPOSTv1authforgetpassword:
-          Type: Api
-          Properties:
-            Path: /v1/auth/forgetpassword
-            Method: POST
-            RestApiId: !Ref AuthAPIs
         AuthAPIsPOSTv1authlogout:
           Type: Api
           Properties:
             Path: /v1/auth/logout
             Method: POST
             RestApiId: !Ref AuthAPIs
-        AuthAPIsPOSTv1authrefreshtoken:
+        AuthAPIsPOSTv1authforgetpassword:
           Type: Api
           Properties:
-            Path: /v1/auth/refreshtoken
+            Path: /v1/auth/forget-password
+            Method: POST
+            RestApiId: !Ref AuthAPIs
+        AuthAPIsPOSTv1authforgetpasswordconfirm:
+          Type: Api
+          Properties:
+            Path: /v1/auth/forget-password/confirm
+            Method: POST
+            RestApiId: !Ref AuthAPIs
+        AuthAPIsPOSTv1authsessionrefresh:
+          Type: Api
+          Properties:
+            Path: /v1/auth/session/refresh
             Method: POST
             RestApiId: !Ref AuthAPIs
       Environment:
@@ -223,13 +231,6 @@ Resources:
                 type: aws_proxy
                 uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthHandler.Arn}/invocations
               responses: {}
-          /v1/auth/forgetpassword:
-            post:
-              x-amazon-apigateway-integration:
-                httpMethod: POST
-                type: aws_proxy
-                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthHandler.Arn}/invocations
-              responses: {}
           /v1/auth/logout:
             post:
               security:
@@ -239,7 +240,21 @@ Resources:
                 type: aws_proxy
                 uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthHandler.Arn}/invocations
               responses: {}
-          /v1/auth/refreshtoken:
+          /v1/auth/forget-password:
+            post:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthHandler.Arn}/invocations
+              responses: {}
+          /v1/auth/forget-password/confirm:
+            post:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthHandler.Arn}/invocations
+              responses: {}
+          /v1/auth/session/refresh:
             post:
               security:
                 - Cognito-playlet: []
@@ -248,6 +263,7 @@ Resources:
                 type: aws_proxy
                 uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthHandler.Arn}/invocations
               responses: {}
+  # User Actions APIs
   UserActionsAPIs:
     Type: AWS::Serverless::Api
     Properties:
