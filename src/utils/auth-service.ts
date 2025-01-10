@@ -9,7 +9,8 @@ import {
     GlobalSignOutCommand,
     InitiateAuthCommandOutput,
     ForgotPasswordCommandOutput,
-    ConfirmForgotPasswordCommandOutput
+    ConfirmForgotPasswordCommandOutput,
+    AdminDeleteUserCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 
 export class AuthService{
@@ -26,7 +27,7 @@ export class AuthService{
     };
 
     public async createUser(email:string,password:string):Promise<boolean>{
-        const command = new SignUpCommand({
+        const createUserCommand = new SignUpCommand({
             ClientId: this.clientId,
             Username:email,
             Password:password,
@@ -37,11 +38,33 @@ export class AuthService{
                 },
               ],
         });
-        const response = await this.cognitoClient.send(command);
-        return response && response.UserConfirmed ? true:false;
+        const createUserResponse = await this.cognitoClient.send(createUserCommand);
+        if(!createUserResponse.UserConfirmed) return false;
+
+        const adminUpdateUserAttributeResponse = await this.adminUpdateUserAttribute(email);
+        if(!adminUpdateUserAttributeResponse){
+            await this.adminDeleteUser(email);
+            return false;
+        }
+
+        const confirmUserResponse = await this.adminConfirmUser(email);
+        if(!confirmUserResponse){
+            await this.adminDeleteUser(email);
+            return false;
+        }
+        return true;
     };
 
-    public async adminUpdateUserAttribute(email:string):Promise<boolean>{
+    private async adminDeleteUser(email:string):Promise<boolean> {
+        const command = new AdminDeleteUserCommand({
+            UserPoolId: this.userpoolId,
+            Username: email,
+        });
+        const response = await this.cognitoClient.send(command);
+        return response?true:false;
+    }
+
+    private async adminUpdateUserAttribute(email:string):Promise<boolean> {
         const command = new AdminUpdateUserAttributesCommand({
             UserPoolId: this.userpoolId,
             Username: email,
@@ -57,7 +80,7 @@ export class AuthService{
         return response?true:false;
     };
 
-    public async adminConfirmUser(email:string):Promise<boolean>{
+    private async adminConfirmUser(email:string):Promise<boolean>{
         const command = new AdminConfirmSignUpCommand({
             UserPoolId: this.userpoolId,
             Username: email,
