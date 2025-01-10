@@ -6,6 +6,10 @@ Transform: AWS::Serverless-2016-10-31
 Globals:
   Function:
     PermissionsBoundary: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${AppId}-${AWS::Region}-PermissionsBoundary
+    Environment:
+      Variables:
+        USER_POOL_ID: !Ref UserPool
+        CLIENT_ID: !Ref UserPoolClient
     LoggingConfig:
       ApplicationLogLevel: WARN
       LogFormat: JSON
@@ -40,6 +44,7 @@ Globals:
 Parameters:
   AppId:
     Type: String
+    Description: Playlet Project
 
 Resources:
   # Common Logging Group for all lambda
@@ -149,7 +154,7 @@ Resources:
             RestApiId: !Ref AuthAPIs
       Environment:
         Variables:
-          USERPOOLCLIENT_USER_POOL_CLIENT_ID: !Ref UserPoolClient
+          CLIENT_ID: !Ref UserPoolClient
   # Upload Handler Lambda Function
   UploadHandler:
     Type: AWS::Serverless::Function
