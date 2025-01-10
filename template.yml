@@ -59,8 +59,6 @@ Resources:
         RecoveryMechanisms:
           - Name: verified_email
             Priority: 1
-          - Name: admin_only
-            Priority: 2
       DeletionProtection: ACTIVE
       MfaConfiguration: 'OFF'
       UsernameConfiguration:
