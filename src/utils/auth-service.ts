@@ -39,7 +39,7 @@ export class AuthService{
               ],
         });
         const createUserResponse = await this.cognitoClient.send(createUserCommand);
-        if(!createUserResponse.UserConfirmed) return false;
+        if(!createUserResponse.UserSub) return false;
 
         const adminUpdateUserAttributeResponse = await this.adminUpdateUserAttribute(email);
         if(!adminUpdateUserAttributeResponse){
