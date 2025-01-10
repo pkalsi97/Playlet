@@ -184,7 +184,6 @@ const confirmForgetPasswordFunc = async (request: IRequest): Promise<IResponse> 
     return {
         success: true,
         message: 'Password reset successfully',
-        data: confirmForgetPasswordResponse
     };
 };
 

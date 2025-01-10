@@ -113,7 +113,7 @@ export class AuthService{
         return response.CodeDeliveryDetails;
     };
 
-    public async confirmForgetPassword(email:string,password:string,answer:string):Promise<ConfirmForgotPasswordCommandOutput>{
+    public async confirmForgetPassword(email:string,password:string,answer:string):Promise<boolean>{
         const command = new ConfirmForgotPasswordCommand({
             ClientId:this.clientId,
             Username:email,
@@ -121,7 +121,8 @@ export class AuthService{
             Password:password,
         });
         const response = await this.cognitoClient.send(command);
-        return response;
+        if(!response) return false;
+        return true;
     }
 
     public async logout(accessToken:string):Promise<boolean>{
