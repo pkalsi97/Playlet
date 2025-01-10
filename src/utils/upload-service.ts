@@ -21,11 +21,11 @@ export class UploadService{
     private readonly uploadSizeLimit: number;
     private readonly uploadTimeLimit: number;
 
-    constructor(bucket:string,region:string,uploadSizeLimit:number,uploadTimeLimit:number){
+    constructor(bucket:string,region:string,uploadSizeLimit:string,uploadTimeLimit:string){
         this.region = region;
         this.bucket = bucket;
-        this.uploadSizeLimit = uploadSizeLimit;
-        this.uploadTimeLimit = uploadTimeLimit;
+        this.uploadSizeLimit = parseInt(uploadSizeLimit,2);
+        this.uploadTimeLimit = parseInt(uploadTimeLimit,2);
         this.s3Client = new S3Client({region:this.region});
     }
 

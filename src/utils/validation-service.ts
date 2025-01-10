@@ -14,7 +14,7 @@ export enum ValidationField {
     OTP = 'OTP'
 }
 
-export interface ValidationRule {
+interface ValidationRule {
     validate: (value: any) => boolean;
     message: string;
 }

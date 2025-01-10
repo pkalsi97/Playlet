@@ -7,7 +7,6 @@ import {
 import {
     InternalServerError,
     ValidationError,
-    BadRequestError,
     exceptionHandlerFunction,
     Fault,
 } from '../utils/error-handling'
@@ -24,7 +23,6 @@ import {
 import {
     ValidationField,
     ValidationResponse,
-    ValidationRule,
     ValidationService
 } from '../utils/validation-service'
 
