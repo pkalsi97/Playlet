@@ -23,8 +23,8 @@ export class UploadService{
     constructor(bucket:string,region:string,uploadSizeLimit:string,uploadTimeLimit:string){
         this.region = region;
         this.bucket = bucket;
-        this.uploadSizeLimit = parseInt(uploadSizeLimit,2);
-        this.uploadTimeLimit = parseInt(uploadTimeLimit,2);
+        this.uploadSizeLimit = parseInt(uploadSizeLimit,10);
+        this.uploadTimeLimit = parseInt(uploadTimeLimit,10);
         this.s3Client = new S3Client({region:this.region});
     }
 
@@ -66,3 +66,4 @@ export class UploadService{
 }
 
 
+// filename is also needed

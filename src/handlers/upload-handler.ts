@@ -67,7 +67,7 @@ const uploadRequestFunc = async (request:IRequest):Promise<IResponse> => {
 
     return {
         success:true,
-        message: "User this Url to Upload",
+        message: "Upload url successfully generated!",
         data:uploadServiceResponse,
     }
 }
