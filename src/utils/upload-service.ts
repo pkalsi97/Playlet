@@ -36,7 +36,11 @@ export class UploadService{
             Key: key,
             Conditions: [
                 ["content-length-range",1,this.uploadSizeLimit],
+                ["eq", "$tagging", ""],
             ],
+            Fields: {
+                'tagging': 'upload=true'
+            },
             Expires: this.uploadTimeLimit,
         });
 
@@ -52,18 +56,14 @@ export class UploadService{
         const hash: string = crypto.createHash('sha256')
             .update(`${userId}-${timestamp}-${uniqueId}`)
             .digest('hex')
-            .substring(0,8);
+            .substring(0,32);
         
-        // Format: yyyy/mm/dd/userId/hash-uniqueId
+        // Format: userId/yyyy/mm/hash
         const date = new Date();
         const year = date.getUTCFullYear();
         const month = String(date.getUTCMonth()+1).padStart(2,'0');
-        const day = String(date.getUTCDate()).padStart(2,'0');
 
-        return `${year}/${month}/${day}/${userId}/${hash}-${uniqueId}`;
+        return `${userId}/${year}/${month}/${hash}`;
     }
 
 }
-
-
-// filename is also needed
