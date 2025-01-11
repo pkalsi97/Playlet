@@ -257,6 +257,7 @@ export const authHandler = async(event: APIGatewayProxyEvent, context: Context):
             statusCode:errorResponse.statusCode,
             body:JSON.stringify({
                 success:false,
+                message:errorResponse.message,
                 body:{},
                 error:errorResponse,
             }),
