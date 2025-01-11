@@ -36,10 +36,10 @@ export class UploadService{
             Key: key,
             Conditions: [
                 ["content-length-range",1,this.uploadSizeLimit],
-                ["eq", "$tagging", ""],
+                ["eq", "$tagging", "status=pending"],
             ],
             Fields: {
-                'tagging': 'upload=true'
+                'tagging': 'status=pending'
             },
             Expires: this.uploadTimeLimit,
         });
