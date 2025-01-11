@@ -53,6 +53,9 @@ Parameters:
   UploadTimeLimit:
     Type: Number
     Description: Upload Time Limit for preSignedPost
+  TransportExpiryDays:
+    Type: Number
+    Description: File Expiry Days for Transport
 
 Resources:
   # Common Logging Group for all lambda
@@ -310,7 +313,7 @@ Resources:
       LifecycleConfiguration:
         Rules:
           - Status: Enabled
-            ExpirationInDays: 3
+            ExpirationInDays: !Ref TransportExpiryDays
   TransportStorageBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
