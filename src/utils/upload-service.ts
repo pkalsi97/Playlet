@@ -9,8 +9,8 @@ import {
 import crypto from 'crypto';
 
 export interface UploadServiceResponse{
-    url:string;
-    key:string;
+    url: string;
+    fields: any;
 }
 
 export class UploadService{
@@ -42,7 +42,7 @@ export class UploadService{
 
         return {
             url:presignedPost.url,
-            key:key,
+            fields: presignedPost.fields,
         };
     };
 
