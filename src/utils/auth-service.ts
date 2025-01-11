@@ -9,8 +9,8 @@ import {
     GlobalSignOutCommand,
     InitiateAuthCommandOutput,
     ForgotPasswordCommandOutput,
-    ConfirmForgotPasswordCommandOutput,
     AdminDeleteUserCommand,
+    GetUserCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 
 export class AuthService{
@@ -144,5 +144,16 @@ export class AuthService{
     
         const response = await this.cognitoClient.send(command);
         return response.AuthenticationResult;
+    }
+
+    public async getUser (accessToken:string):Promise<string>{
+
+        const command = new GetUserCommand({
+            AccessToken:accessToken,
+        });
+
+        const response = await this.cognitoClient.send(command);
+        const userId = response.UserAttributes!.find(att => att.Name === 'sub')!.Value!;
+        return userId;
     }
 };
