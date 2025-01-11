@@ -10,6 +10,8 @@ Globals:
       Variables:
         USER_POOL_ID: !Ref UserPool
         CLIENT_ID: !Ref UserPoolClient
+        UPLOAD_SIZE_LIMIT: !Ref UploadSizeLimit
+        UPLOAD_TIME_LIMIT: !Ref UploadTimeLimit
     LoggingConfig:
       ApplicationLogLevel: WARN
       LogFormat: JSON
@@ -45,6 +47,12 @@ Parameters:
   AppId:
     Type: String
     Description: Playlet Project
+  UploadSizeLimit:
+    Type: Number
+    Description: Upload Size Limit for content-length-range
+  UploadTimeLimit:
+    Type: Number
+    Description: Upload Time Limit for preSignedPost
 
 Resources:
   # Common Logging Group for all lambda
@@ -295,8 +303,7 @@ Resources:
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
-              SSEAlgorithm: aws:kms
-              KMSMasterKeyID: alias/aws/s3
+              SSEAlgorithm: AES256
       PublicAccessBlockConfiguration:
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
