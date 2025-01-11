@@ -18,13 +18,17 @@ interface IErrorLog {
     timestamp:number;
 }
 
-interface IClientResponse{
-    name:string,
-    message: string;
-    statusCode: number;
+interface IErrorMetadata {
+    name: string;
     fault: Fault;
     retryable: boolean;
-    timestamp:number;
+    timestamp: number;
+}
+
+interface IClientResponse {
+    statusCode: number;
+    message: string;
+    metadata: IErrorMetadata;
 }
 
 export const exceptionHandlerFunction = (error:any): IClientResponse => {
@@ -56,13 +60,15 @@ export const exceptionHandlerFunction = (error:any): IClientResponse => {
     console.error(errorLog);
 
     const clientResponse:IClientResponse = {
-        name: errorLog.name,
-        message: errorLog.message,
         statusCode: errorLog.statusCode,
-        fault: errorLog.fault,
-        retryable: errorLog.retryable,
-        timestamp: errorLog.timestamp,
-    }
+        message:errorLog.message,
+        metadata: {
+            name:errorLog.name,
+            fault:errorLog.fault,
+            retryable:errorLog.retryable,
+            timestamp:errorLog.timestamp,
+        }
+    };
 
     return clientResponse;
 }
@@ -117,3 +123,13 @@ export class BadRequestError extends CustomError {
         super(message,400,fault,retryable);
     };
 };
+
+export class UploadServiceError extends CustomError {
+    constructor(
+        message: string = "Upload Service Error",
+        fault: Fault = Fault.SERVER,
+        retryable: boolean = false,
+    ){
+        super(message,503,fault,retryable);
+    };
+}

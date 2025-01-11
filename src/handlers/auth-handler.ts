@@ -259,7 +259,7 @@ export const authHandler = async(event: APIGatewayProxyEvent, context: Context):
                 success:false,
                 message:errorResponse.message,
                 body:{},
-                error:errorResponse,
+                error:errorResponse.metadata,
             }),
         };
     }
