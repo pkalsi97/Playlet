@@ -63,7 +63,7 @@ Resources:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Retain
     Properties:
-      LogGroupName: !Sub /aws/lambda/${AppId}-Backend-Function-Logs
+      LogGroupName: !Sub /aws/lambda/${AppId}-Backend-PreprocessingHandler-Logs
   # User Pool
   UserPool:
     Type: AWS::Cognito::UserPool
@@ -174,7 +174,7 @@ Resources:
       CodeUri: ./
       Handler: dist/handlers/upload-handler.uploadHandler
       Runtime: nodejs18.x
-      MemorySize: 2048
+      MemorySize: 1024
       Timeout: 60
       Tracing: Active
       Architectures:
@@ -314,6 +314,12 @@ Resources:
         Rules:
           - Status: Enabled
             ExpirationInDays: !Ref TransportExpiryDays
+      NotificationConfiguration:
+        QueueConfigurations:
+          - Event: s3:ObjectCreated:Post
+            Queue: !GetAtt PreprocessingQueue.Arn
+    DependsOn:
+      - TransportStorageToPreprocessingQueuePermission
   TransportStorageBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -331,3 +337,44 @@ Resources:
             Condition:
               Bool:
                 aws:SecureTransport: 'false'
+  PreprocessingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: Preprocessing Queue
+      MessageRetentionPeriod: 345600
+  TransportStorageToPreprocessingQueuePermission:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt PreprocessingQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Sub arn:${AWS::Partition}:s3:::${AWS::StackName}-transport-${AWS::AccountId}
+      Queues:
+        - !Ref PreprocessingQueue
+  PreprocessingHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: !Sub
+        - Stack ${AWS::StackName} Function ${ResourceName}
+        - ResourceName: PreprocessingHandler
+      CodeUri: ./
+      Handler: dist/handlers/preprocessing-handler.preprocessingHandler
+      Runtime: nodejs18.x
+      MemorySize: 2500
+      Timeout: 60
+      Tracing: Active
+      Architectures:
+        - arm64
+      Events:
+        PreprocessingQueue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt PreprocessingQueue.Arn
+            BatchSize: 1
