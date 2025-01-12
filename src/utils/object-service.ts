@@ -63,7 +63,7 @@ export class ObjectService{
     public async writeToTemp(object:GetObjectCommandOutput["Body"],key:string):Promise<string> {
 
         const fileName: string = crypto.randomUUID();
-        const filePath: string = path.join('/temp',fileName);
+        const filePath: string = path.join('/tmp',fileName);
 
         const readableStream = object!.transformToWebStream();
         const writeStream = fs.createWriteStream(filePath);

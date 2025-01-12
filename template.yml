@@ -377,6 +377,10 @@ Resources:
       Tracing: Active
       Architectures:
         - arm64
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - AWSXrayWriteOnlyAccess
+        - AmazonS3FullAccess
       Events:
         PreprocessingQueue:
           Type: SQS

@@ -86,9 +86,8 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
             const s3Event: S3Event = JSON.parse(message.body);
 
             for (const event of s3Event.Records){
-                // const response = await objectServiceFunc(event.s3.object.key);
-                // console.warn(response);
-                console.warn(event);
+                const response = await objectServiceFunc(event.s3.object.key);
+                console.warn(response);
             };
         };
         return {
