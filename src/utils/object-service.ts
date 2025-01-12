@@ -72,7 +72,7 @@ export class ObjectService{
         const writeStream = fs.createWriteStream(filePath);
 
         const bytes = await object!.transformToByteArray();
-        const readable = Readable.from(bytes);
+        const readable = Readable.from(Buffer.from(bytes), { objectMode: false });
     
         await pipeline(readable, writeStream);
         return filePath;
