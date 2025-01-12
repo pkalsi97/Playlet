@@ -60,6 +60,5 @@ export class UploadService{
         const month = String(date.getUTCMonth()+1).padStart(2,'0');
 
         return `${userId}/${year}/${month}/${hash}`;
-    }
-
-}
+    };
+};
