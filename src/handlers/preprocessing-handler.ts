@@ -1,3 +1,4 @@
+import { ListBucketInventoryConfigurationsOutputFilterSensitiveLog } from '@aws-sdk/client-s3';
 import {
     ObjectService
 } from '../utils/object-service'
@@ -68,16 +69,17 @@ const objectServiceFunc = async(key:string):Promise<string> =>{
 
     const path = await objectService.writeToTemp(object,key);
 
-    const deleteObject = await objectService.deleteObject(key);
+    const deleteFirstObject = await objectService.deleteObject(key);
 
-    const objectTempCopy = await objectService.getFromTemp(path);
-    
-    const newKey = `${key}-temp`
-    const putObject = await objectService.putObject(objectTempCopy,newKey);
+    const temp = await objectService.getFromTemp(path);
 
-    const delTemp = await objectService.cleanUpFromTemp(path);
+    const newKey = `${key}-test`;
+
+    const uploadStream = await objectService.uploadObject(temp,newKey);
+
+    const clearUp = await objectService.cleanUpFromTemp(path);
     
-    return `${path}-${deleteObject}-${putObject}-${delTemp}`;
+    return `${path}-${deleteFirstObject}-${uploadStream}-${clearUp}`;
 }
 
 export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
