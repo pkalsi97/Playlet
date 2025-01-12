@@ -342,6 +342,7 @@ Resources:
     Properties:
       QueueName: Preprocessing-Queue
       MessageRetentionPeriod: 345600
+      VisibilityTimeout: 120 
   TransportStorageToPreprocessingQueuePermission:
     Type: AWS::SQS::QueuePolicy
     Properties:
