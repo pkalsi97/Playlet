@@ -1,3 +1,45 @@
+import {
+    ObjectService
+} from '../utils/object-service'
+
+interface S3EventRecord {
+    eventVersion: string;
+    eventSource: string;
+    awsRegion: string;
+    eventTime: string;
+    eventName: string;
+    userIdentity: {
+        principalId: string;
+    };
+    requestParameters: {
+        sourceIPAddress: string;
+    };
+    responseElements: {
+        'x-amz-request-id': string;
+        'x-amz-id-2': string;
+    };
+    s3: {
+        s3SchemaVersion: string;
+        configurationId: string;
+        bucket: {
+            name: string;
+            ownerIdentity: {
+                principalId: string;
+            };
+            arn: string;
+        };
+        object: {
+            key: string;
+            size: number;
+            eTag: string;
+            sequencer: string;
+        };
+    };
+}
+
+interface S3Event {
+    Records: S3EventRecord[];
+}
 interface SQSRecord {
     messageId: string;
     receiptHandle: string;
@@ -19,15 +61,35 @@ interface SQSEvent {
     Records: SQSRecord[];
 }
 
-export const preprocessingHandler = async(event: SQSEvent): Promise<any> => {
+const objectService = new ObjectService(process.env.AWS_DEFAULT_REGION!,process.env.TRANSPORTSTORAGE_BUCKET_NAME!);
+
+const objectServiceFunc = async(key:string):Promise<string> =>{
+    const object = await objectService.getObject(key);
+
+    const path = await objectService.writeToTemp(object,key);
+
+    const deleteObject = await objectService.deleteObject(key);
+
+    const objectTempCopy = await objectService.getFromTemp(path);
+    
+    const newKey = `${key}-temp`
+    const putObject = await objectService.putObject(objectTempCopy,newKey);
+
+    const delTemp = await objectService.cleanUpFromTemp(path);
+    
+    return `${path}-${deleteObject}-${putObject}-${delTemp}`;
+}
+
+export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
     try {
-        console.warn('Received event:', JSON.stringify(event, null, 2));
+        for (const message of messages.Records){
+            const s3Event: S3Event = JSON.parse(message.body);
 
-        for (const record of event.Records) {
-            const s3Event = JSON.parse(record.body);
-            console.log(s3Event);
-        }
-
+            for (const event of s3Event.Records){
+                const response = await objectServiceFunc(event.s3.object.key);
+                console.warn(response);
+            };
+        };
         return {
             statusCode: 200,
             body: 'Successfully logged events'
