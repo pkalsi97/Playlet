@@ -21,7 +21,7 @@ interface SQSEvent {
 
 export const preprocessingHandler = async(event: SQSEvent): Promise<any> => {
     try {
-        console.log('Received event:', JSON.stringify(event, null, 2));
+        console.warn('Received event:', JSON.stringify(event, null, 2));
 
         for (const record of event.Records) {
             const s3Event = JSON.parse(record.body);

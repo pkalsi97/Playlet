@@ -63,7 +63,7 @@ Resources:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Retain
     Properties:
-      LogGroupName: !Sub /aws/lambda/${AppId}-Backend-PreprocessingHandler-Logs
+      LogGroupName: !Sub /aws/lambda/${AppId}-Backend-Function-Logs
   # User Pool
   UserPool:
     Type: AWS::Cognito::UserPool
