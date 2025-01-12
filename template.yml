@@ -340,7 +340,7 @@ Resources:
   PreprocessingQueue:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: Preprocessing Queue
+      QueueName: Preprocessing-Queue
       MessageRetentionPeriod: 345600
   TransportStorageToPreprocessingQueuePermission:
     Type: AWS::SQS::QueuePolicy

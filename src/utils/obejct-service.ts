@@ -80,5 +80,19 @@ export class ObjectService{
 
         return Readable.toWeb(readStream) as ReadableStream;
     };
+
+    public async cleanUpFromTemp(path:string):Promise<boolean> {
+        try {
+            await fs.promises.access(path, fs.constants.F_OK);
+            await fs.promises.unlink(path);
+            return true
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT'){
+                return true;
+            }
+            return false;
+        }
+
+    };
 }
  
