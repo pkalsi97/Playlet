@@ -9,11 +9,11 @@ import type { ReadableStream as WebReadableStream } from 'stream/web';
 import {
     S3Client,
     GetObjectCommand,
-    PutObjectCommand,
     DeleteObjectCommand,
     GetObjectCommandOutput,
 } from '@aws-sdk/client-s3'
 
+import { Upload } from '@aws-sdk/lib-storage'
 
 export class ObjectService{
     private s3Client: S3Client;
@@ -36,15 +36,19 @@ export class ObjectService{
         return (await this.s3Client.send(command)).Body;
     };
 
-    public async putObject(object:ReadableStream,key:string):Promise<boolean> {
-        const command = new PutObjectCommand({
-            Bucket: this.bucket,
-            Key: key,
-            Body: object,
+    public async uploadObject(object:fs.ReadStream,key:string):Promise<boolean> {
+
+        const upload = new Upload({
+            client: this.s3Client,
+            params: {
+                Bucket: this.bucket,
+                Key: key,
+                Body: object
+            }
         });
 
-        const response = await this.s3Client.send(command);
-        return response.$metadata.httpStatusCode === 200;
+        const result = await upload.done();
+        return result.$metadata.httpStatusCode === 200;
     };
 
     public async deleteObject(key:string):Promise<boolean> { 
@@ -65,20 +69,19 @@ export class ObjectService{
         const fileName: string = crypto.randomUUID();
         const filePath: string = path.join('/tmp',fileName);
 
-        const readableStream = object!.transformToWebStream();
         const writeStream = fs.createWriteStream(filePath);
-        const nodeReadable = Readable.fromWeb(readableStream as WebReadableStream);
 
-        await pipeline(nodeReadable, writeStream);
+        const bytes = await object!.transformToByteArray();
+        const readable = Readable.from(bytes);
+    
+        await pipeline(readable, writeStream);
         return filePath;
     }
 
-    public async getFromTemp(path:string):Promise<ReadableStream>{
-
+    public async getFromTemp(path:string):Promise<fs.ReadStream>{
         await fs.promises.access(path, fs.constants.R_OK);
         const readStream = fs.createReadStream(path);
-
-        return Readable.toWeb(readStream) as ReadableStream;
+        return readStream;
     };
 
     public async cleanUpFromTemp(path:string):Promise<boolean> {
