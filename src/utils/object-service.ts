@@ -59,9 +59,8 @@ export class ObjectService{
         });
 
         const response = await this.s3Client.send(command);
-        if(!response.DeleteMarker) return false;
 
-        return true;
+        return response.$metadata.httpStatusCode === 204;
     };
 
     public async writeToTemp(object:GetObjectCommandOutput["Body"],key:string):Promise<string> {

@@ -343,7 +343,7 @@ Resources:
     Properties:
       QueueName: Preprocessing-Queue
       MessageRetentionPeriod: 345600
-      VisibilityTimeout: 120
+      VisibilityTimeout: 240
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt CommonDLQ.Arn
         maxReceiveCount: 3
@@ -373,7 +373,7 @@ Resources:
       Handler: dist/handlers/preprocessing-handler.preprocessingHandler
       Runtime: nodejs18.x
       MemorySize: 2500
-      Timeout: 60
+      Timeout: 240
       Tracing: Active
       Architectures:
         - arm64
