@@ -53,7 +53,7 @@ const uploadRequestFunc = async (request:IRequest):Promise<IResponse> => {
     ]);
 
     if (!validationResult.success){
-        throw new ValidationError (validationResult.message,Fault.CLIENT,true);
+        throw new ValidationError (validationResult.message,400,Fault.CLIENT,true);
     }
 
     const token = request.headers?.['x-access-token'];
@@ -62,7 +62,7 @@ const uploadRequestFunc = async (request:IRequest):Promise<IResponse> => {
 
     const uploadServiceResponse = await uploadService.generatePreSignedPost(userId);
     if (!uploadServiceResponse){
-        throw new UploadServiceError("Upload Service is down!",Fault.SERVER,true);
+        throw new UploadServiceError("Upload Service is down!",503,Fault.SERVER,true);
     }
 
     return {
@@ -82,7 +82,7 @@ export const uploadHandler = async(event:APIGatewayProxyEvent,context:Context): 
         const path = event.path;
         const executionFunction = executionFunctionMap[path];
         if (!executionFunction) {
-            throw new InternalServerError(`No Function Mapping Found For ${path}`,Fault.CLIENT,true);
+            throw new InternalServerError(`No Function Mapping Found For ${path}`,404,Fault.CLIENT,true);
         }
 
         const request : IRequest = {
