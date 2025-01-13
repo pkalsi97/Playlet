@@ -96,10 +96,11 @@ export class CustomError extends Error {
 export class ValidationError extends CustomError {
     constructor(
         message: string = "Validation Error",
+        statusCode: number = 400,
         fault: Fault = Fault.CLIENT,
         retryable: boolean = true,
     ) {
-        super(message, 400, fault, retryable);
+        super(message, statusCode, fault, retryable);
     };
 };
 
@@ -107,29 +108,54 @@ export class ValidationError extends CustomError {
 export class InternalServerError extends CustomError {
     constructor(
         message: string = "Internal Sever Error",
+        statusCode: number = 500,
         fault: Fault = Fault.SERVER,
         retryable: boolean = false,
     ){
-        super(message,500,fault,retryable);
+        super(message,statusCode,fault,retryable);
     };
 };
 
 export class BadRequestError extends CustomError {
     constructor(
         message: string = "Bad Request",
+        statusCode: number = 400,
         fault: Fault = Fault.CLIENT,
         retryable: boolean = true,
     ){
-        super(message,400,fault,retryable);
+        super(message,statusCode,fault,retryable);
     };
 };
 
 export class UploadServiceError extends CustomError {
     constructor(
         message: string = "Upload Service Error",
+        statusCode: number = 503,
         fault: Fault = Fault.SERVER,
         retryable: boolean = false,
     ){
-        super(message,503,fault,retryable);
+        super(message,statusCode,fault,retryable);
     };
-}
+};
+
+export class ObjectServiceError extends CustomError {
+    constructor(
+        message: string = "Object Service Error",
+        statusCode: number = 503,
+        fault: Fault = Fault.SERVER,
+        retryable: boolean = false,
+    ){
+        super(message,statusCode,fault,retryable);
+    };
+};
+
+export class TranscodingServiceError extends CustomError {
+    constructor(
+        message: string = "Transcoding Service Error",
+        statusCode: number = 503,
+        fault: Fault = Fault.SERVER,
+        retryable: boolean = false,
+    ){
+        super(message,statusCode,fault,retryable);
+    };
+};
