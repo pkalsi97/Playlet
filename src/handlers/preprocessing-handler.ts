@@ -1,4 +1,3 @@
-import { ListBucketInventoryConfigurationsOutputFilterSensitiveLog } from '@aws-sdk/client-s3';
 import {
     ObjectService
 } from '../utils/object-service'
@@ -64,23 +63,8 @@ interface SQSEvent {
 
 const objectService = new ObjectService(process.env.AWS_DEFAULT_REGION!,process.env.TRANSPORTSTORAGE_BUCKET_NAME!);
 
-const objectServiceFunc = async(key:string):Promise<string> =>{
-    const object = await objectService.getObject(key);
 
-    const path = await objectService.writeToTemp(object,key);
 
-    const deleteFirstObject = await objectService.deleteObject(key);
-
-    const temp = await objectService.getFromTemp(path);
-
-    const newKey = `${key}-test`;
-
-    const uploadStream = await objectService.uploadObject(temp,newKey);
-
-    const clearUp = await objectService.cleanUpFromTemp(path);
-    
-    return `${path}-${deleteFirstObject}-${uploadStream}-${clearUp}`;
-}
 
 export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
     try {
@@ -88,8 +72,7 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
             const s3Event: S3Event = JSON.parse(message.body);
 
             for (const event of s3Event.Records){
-                const response = await objectServiceFunc(event.s3.object.key);
-                console.warn(response);
+
             };
         };
         return {
@@ -102,3 +85,15 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
         throw error;
     }
 };
+
+// init -> preprocessing status object (client will use to get status)
+// do the steps and once complete -> move to next or move the message into DQL
+// framework to determine if  retries can be done or not 
+
+// step one -> get object -> write to temp
+// basic validation
+// stream validation
+// meta data extraction
+// gop creation
+// dag creation
+
