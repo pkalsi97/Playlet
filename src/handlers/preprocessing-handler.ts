@@ -1,9 +1,4 @@
 import ffmpeg from 'fluent-ffmpeg';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import * as fs from 'fs';
-import * as path from 'path';
-
 import {
     ObjectService
 } from '../utils/object-service';
@@ -101,9 +96,6 @@ if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
     ffmpeg.setFfprobePath(process.env.FFPROBE_PATH || '/opt/ffprobe/ffprobe');
 }
 
-
-const execAsync = promisify(exec);  
-
 const contentValidationService = new ContentValidationService(parseInt(process.env.UPLOAD_SIZE_LIMIT!,10));
 const metadataExtractor = new MetadataExtractor();
 const objectService = new ObjectService(process.env.AWS_DEFAULT_REGION!,process.env.TRANSPORTSTORAGE_BUCKET_NAME!);
@@ -147,16 +139,10 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
 
                 const basicValidationResult: BasicValidationResult = await contentValidationService.validateBasics(filePath);
                 console.warn(basicValidationResult);
-                if(!basicValidationResult.isValid){
-                    throw new TranscodingServiceError("Invalid Content Provided",422,Fault.CLIENT,true);
-                }
 
                 const streamValidationResult: StreamValidationResult = await contentValidationService.validateStreams(filePath);
                 console.warn(streamValidationResult);
-                if (!streamValidationResult.isPlayable || !streamValidationResult.hasAudioStream || streamValidationResult.error) {
-                    throw new TranscodingServiceError("Stream Validation Failed",422,Fault.CLIENT,true);
-                }
-
+   
                 const technicalMetadata: TechnicalMetadata = await metadataExtractor.extractTechnicalMetadata(filePath);
                 console.warn(technicalMetadata);
                 const qualityMetrics: QualityMetrics = await metadataExtractor.extractQualityMetrics(filePath);
