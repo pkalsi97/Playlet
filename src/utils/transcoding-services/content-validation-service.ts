@@ -12,7 +12,6 @@ if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
 export interface BasicValidationResult {
     exists: boolean;
     sizeInBytes: number;
-    isWithinSizeLimit: boolean;
     containerFormat: string;
     detectedFormats: string;
     videoCodec: string;
@@ -29,14 +28,12 @@ export interface StreamValidationResult {
 };
 
 export class ContentValidationService {
-    private readonly maxSizeInBytes: number;
     private readonly supportedFormats = ['mp4', 'mov', 'avi', 'mkv'];
     private readonly supportedVideoCodecs = ['h264', 'hevc', 'vp8', 'vp9'];
     private readonly supportedAudioCodecs = ['aac', 'mp3', 'opus'];
     private readonly ffprobe: (filePath: string) => Promise<FfprobeData>;
 
-    constructor(maxSizeInBytes: number) {
-        this.maxSizeInBytes = maxSizeInBytes;
+    constructor() {
         this.ffprobe =  promisify(ffmpeg.ffprobe);
     }
 
@@ -44,7 +41,6 @@ export class ContentValidationService {
         return {
             exists,
             sizeInBytes: stats?.size || 0,
-            isWithinSizeLimit: stats ? stats.size <= this.maxSizeInBytes : false,
             containerFormat: 'unknown',
             detectedFormats: 'unknown',
             videoCodec: 'none',
@@ -75,7 +71,6 @@ export class ContentValidationService {
         return {
             exists: true,
             sizeInBytes: stats.size,
-            isWithinSizeLimit: stats.size <= this.maxSizeInBytes,
             containerFormat: format,
             detectedFormats: metadata.format?.format_name || 'unknown',
             videoCodec,
@@ -85,8 +80,7 @@ export class ContentValidationService {
     }
 
     private isValidVideo(format: string, videoCodec: string, audioCodec: string, size: number): boolean {
-        return size <= this.maxSizeInBytes &&
-               this.supportedFormats.some(f => format.includes(f)) &&
+        return this.supportedFormats.some(f => format.includes(f)) &&
                this.supportedVideoCodecs.includes(videoCodec) &&
                this.supportedAudioCodecs.includes(audioCodec);
     }

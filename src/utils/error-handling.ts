@@ -3,6 +3,17 @@ export enum Fault {
     SERVER = 'Server',
 };
 
+export enum ErrorName {
+    AWS_ERROR = 'AWSError',
+    INTERNAL_ERROR = 'InternalServerError',
+    TRANSCODING_ERROR = 'TranscodingError',
+    VALIDATION_ERROR = 'ValidationError',
+    BAD_REQUEST_ERROR = 'BadRequestError',
+    UPLOAD_SERVICE_ERROR = 'UploadServiceError',
+    OBJECT_SERVICE_ERROR = 'ObjectServiceError',
+    PREPROCESSING_ERROR = 'PreprocessingError',
+}
+
 interface IErrorLog {
     name: string;
     message: string;
@@ -34,7 +45,7 @@ interface IClientResponse {
 export const exceptionHandlerFunction = (error:any): IClientResponse => {
 
     const errorLog:IErrorLog = {
-        name: error?.['name'] || 'Internal Server Error',
+        name: error?.['name'] || ErrorName.INTERNAL_ERROR,
         message: error?.['message'] || 'An unknown error occurred',
         statusCode: error?.['$response']?.statusCode || 500,
         fault: error?.['$fault'] || Fault.SERVER,
@@ -74,88 +85,23 @@ export const exceptionHandlerFunction = (error:any): IClientResponse => {
 }
 
 export class CustomError extends Error {
+    public name: ErrorName;
     public statusCode: number;
     public fault: Fault;
     public retryable: boolean;
 
     constructor(
-        message:string,
-        statusCode:number,
-        fault:Fault = Fault.SERVER,
-        retryable:boolean,
+        name: ErrorName,
+        message: string = "Unknown Error!",
+        statusCode: number,
+        fault: Fault = Fault.SERVER,
+        retryable: boolean,
     ){
         super(message);
-        this.name = this.constructor.name;
+        this.name = name;
         this.statusCode = statusCode;
         this.fault = fault;
         this.retryable = retryable;
-        Object.setPrototypeOf(this,new.target.prototype)
-    };
-};
-
-export class ValidationError extends CustomError {
-    constructor(
-        message: string = "Validation Error",
-        statusCode: number = 400,
-        fault: Fault = Fault.CLIENT,
-        retryable: boolean = true,
-    ) {
-        super(message, statusCode, fault, retryable);
-    };
-};
-
-
-export class InternalServerError extends CustomError {
-    constructor(
-        message: string = "Internal Sever Error",
-        statusCode: number = 500,
-        fault: Fault = Fault.SERVER,
-        retryable: boolean = false,
-    ){
-        super(message,statusCode,fault,retryable);
-    };
-};
-
-export class BadRequestError extends CustomError {
-    constructor(
-        message: string = "Bad Request",
-        statusCode: number = 400,
-        fault: Fault = Fault.CLIENT,
-        retryable: boolean = true,
-    ){
-        super(message,statusCode,fault,retryable);
-    };
-};
-
-export class UploadServiceError extends CustomError {
-    constructor(
-        message: string = "Upload Service Error",
-        statusCode: number = 503,
-        fault: Fault = Fault.SERVER,
-        retryable: boolean = false,
-    ){
-        super(message,statusCode,fault,retryable);
-    };
-};
-
-export class ObjectServiceError extends CustomError {
-    constructor(
-        message: string = "Object Service Error",
-        statusCode: number = 503,
-        fault: Fault = Fault.SERVER,
-        retryable: boolean = false,
-    ){
-        super(message,statusCode,fault,retryable);
-    };
-};
-
-export class TranscodingServiceError extends CustomError {
-    constructor(
-        message: string = "Transcoding Service Error",
-        statusCode: number = 503,
-        fault: Fault = Fault.SERVER,
-        retryable: boolean = false,
-    ){
-        super(message,statusCode,fault,retryable);
+        Object.setPrototypeOf(this, new.target.prototype);
     };
 };

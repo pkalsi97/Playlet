@@ -24,9 +24,8 @@ import {
 } from '../utils/transcoding-services/gop-creation-service';
 
 import {
-    ObjectServiceError,
-    TranscodingServiceError,
-    InternalServerError,
+    ErrorName,
+    CustomError,
     exceptionHandlerFunction,
     Fault
 } from '../utils/error-handling'
@@ -96,7 +95,7 @@ if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
     ffmpeg.setFfprobePath(process.env.FFPROBE_PATH || '/opt/ffprobe/ffprobe');
 }
 
-const contentValidationService = new ContentValidationService(parseInt(process.env.UPLOAD_SIZE_LIMIT!,10));
+const contentValidationService = new ContentValidationService();
 const metadataExtractor = new MetadataExtractor();
 const objectService = new ObjectService(process.env.AWS_DEFAULT_REGION!,process.env.TRANSPORTSTORAGE_BUCKET_NAME!);
 
@@ -114,12 +113,12 @@ const initSourceContentFunc = async(key:string):Promise<string> => {
 
     const object = await objectService.getObject(key);
     if (!object){
-        throw new ObjectServiceError("Unable to get object from Object Storage",503,Fault.SERVER,true);
+        throw new CustomError(ErrorName.OBJECT_SERVICE_ERROR,"Unable to get object from Object Storage",503,Fault.SERVER,true);
     }
 
     const path = await objectService.writeToTemp(object);
     if (!path) {
-        throw new ObjectServiceError("Unable to store object in tmp",503,Fault.SERVER,true);
+        throw new CustomError(ErrorName.OBJECT_SERVICE_ERROR,"Unable to store object in tmp",503,Fault.SERVER,true);
     }
 
     return path;
@@ -175,3 +174,44 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
         }
     }
 };
+
+//1. better error handling so that jobs can be discarded properly
+//2. storage of data at every step
+// 
+
+// - ValidationErrors (Client)
+//   - Format Issues
+//   - Codec Issues
+//   - Size Issues
+//   - Missing Streams
+
+// - ProcessingErrors (Server)
+//   - GOP Creation Failed
+//   - Transcoding Failed
+//   - Resource Exhaustion
+//   - Memory Issues
+
+// - StorageErrors
+//   - S3 Access
+//   - Temp Storage
+//   - Permission Issues
+
+// - SystemErrors
+//   - FFmpeg Failures
+//   - Binary Issues
+//   - Environment Issues
+
+
+// non retryable
+
+//   - Invalid Format
+// - Unsupported Codec
+// - Missing Required Streams
+// - File Too Large
+// - Corrupt File
+
+//Retryable (3 attempts):
+// - S3 Timeouts
+// - FFmpeg Temporary Failures
+// - Resource Constraints
+// - System Load Issues

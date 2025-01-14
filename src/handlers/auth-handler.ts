@@ -5,10 +5,10 @@ import {
 } from 'aws-lambda';
 
 import {
-    InternalServerError,
-    ValidationError,
     exceptionHandlerFunction,
+    CustomError,
     Fault,
+    ErrorName
 } from '../utils/error-handling'
 
 import {
@@ -47,14 +47,14 @@ const signupFunc = async (request: IRequest): Promise<IResponse> => {
     ]);
 
     if (!validationResult.success){
-        throw new ValidationError (validationResult.message,400,Fault.CLIENT,true);
+        throw new CustomError (ErrorName.VALIDATION_ERROR,validationResult.message,400,Fault.CLIENT,true);
     }
 
     const { email, password } = request.body!;
 
     const createUserResponse = await authService.createUser(email,password);
     if (!createUserResponse){
-        throw new InternalServerError("Signup Failed,Try Again Later!",500,Fault.SERVER,true);
+        throw new CustomError (ErrorName.INTERNAL_ERROR,"Signup Failed,Try Again Later!",500,Fault.SERVER,true);
     }
 
     return {
@@ -78,14 +78,14 @@ const loginFunc= async (request: IRequest): Promise<IResponse> => {
     ]);
 
     if (!validationResult.success){
-        throw new ValidationError (validationResult.message,400,Fault.CLIENT,true);
+        throw new CustomError (ErrorName.VALIDATION_ERROR,validationResult.message,400,Fault.CLIENT,true);
     }
 
     const { email, password } = request.body!;
 
     const loginResponse = await authService.login(email,password);
     if (!loginResponse){
-        throw new InternalServerError("Login failed, Try again",401,Fault.CLIENT,true);
+        throw new CustomError(ErrorName.INTERNAL_ERROR,"Login failed, Try again",401,Fault.CLIENT,true);
     }
 
     return {
@@ -108,7 +108,7 @@ const logoutFunc = async (request: IRequest): Promise<IResponse> => {
     ]);
 
     if (!validationResult.success){
-        throw new ValidationError (validationResult.message,400,Fault.CLIENT,true);
+        throw new CustomError (ErrorName.VALIDATION_ERROR,validationResult.message,400,Fault.CLIENT,true);
     }
 
     const accessToken = request.headers?.['x-access-token'];
@@ -135,14 +135,14 @@ const forgetPasswordFunc = async (request: IRequest): Promise<IResponse> => {
     ]);
 
     if (!validationResult.success){
-        throw new ValidationError (validationResult.message,400,Fault.CLIENT,true);
+        throw new CustomError (ErrorName.VALIDATION_ERROR,validationResult.message,400,Fault.CLIENT,true);
     }
 
     const { email } = request.body!;
 
     const forgetPasswordResponse = await authService.forgetPassword(email);
     if (!forgetPasswordResponse) {
-        throw new InternalServerError("Unable to reset Password",500,Fault.SERVER,false);
+        throw new CustomError(ErrorName.INTERNAL_ERROR,"Unable to reset Password",500,Fault.SERVER,false);
     }
 
     return {
@@ -169,14 +169,14 @@ const confirmForgetPasswordFunc = async (request: IRequest): Promise<IResponse> 
     ]);
 
     if (!validationResult.success){
-        throw new ValidationError (validationResult.message,400,Fault.CLIENT,true);
+        throw new CustomError(ErrorName.VALIDATION_ERROR,validationResult.message,400,Fault.CLIENT,true);
     }
 
     const { email, answer, password } = request.body!;
 
     const confirmForgetPasswordResponse = await authService.confirmForgetPassword(email,password,answer);
     if(!confirmForgetPasswordResponse) {
-        throw new InternalServerError("Password Reset Failed",500,Fault.SERVER,false);
+        throw new CustomError(ErrorName.INTERNAL_ERROR,"Password Reset Failed",500,Fault.SERVER,false);
     }
 
     return {
@@ -198,13 +198,13 @@ const refreshSessionFunc = async (request: IRequest): Promise<IResponse> => {
     ]);
 
     if (!validationResult.success){
-        throw new ValidationError (validationResult.message,400,Fault.CLIENT,true);
+        throw new CustomError(ErrorName.VALIDATION_ERROR,validationResult.message,400,Fault.CLIENT,true);
     }
 
     const { refreshToken } = request.body!;
     const sessionRefreshResponse = await authService.refreshToken(refreshToken);
     if (!sessionRefreshResponse){
-        throw new InternalServerError("Session Refresh Failed",500,Fault.SERVER,false);
+        throw new CustomError(ErrorName.INTERNAL_ERROR,"Session Refresh Failed",500,Fault.SERVER,false);
     }
 
     return {
@@ -229,7 +229,7 @@ export const authHandler = async(event: APIGatewayProxyEvent, context: Context):
         const executionFunction = executionFunctionMap[path];
         
         if (!executionFunction) {
-            throw new InternalServerError(`No Function Mapping Found For ${path}`,404,Fault.CLIENT,true);
+            throw new CustomError(ErrorName.INTERNAL_ERROR,`No Function Mapping Found For ${path}`,404,Fault.CLIENT,true);
         }
 
         const request: IRequest = {
