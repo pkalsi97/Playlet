@@ -143,27 +143,34 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
 
                 const key: string = event.s3.object.key;
                 const filePath: string = await initSourceContentFunc(key);
+                console.warn(filePath);
 
                 const basicValidationResult: BasicValidationResult = await contentValidationService.validateBasics(filePath);
+                console.warn(basicValidationResult);
                 if(!basicValidationResult.isValid){
                     throw new TranscodingServiceError("Invalid Content Provided",422,Fault.CLIENT,true);
                 }
 
                 const streamValidationResult: StreamValidationResult = await contentValidationService.validateStreams(filePath);
+                console.warn(streamValidationResult);
                 if (!streamValidationResult.isPlayable || !streamValidationResult.hasAudioStream || streamValidationResult.error) {
                     throw new TranscodingServiceError("Stream Validation Failed",422,Fault.CLIENT,true);
                 }
 
                 const technicalMetadata: TechnicalMetadata = await metadataExtractor.extractTechnicalMetadata(filePath);
+                console.warn(technicalMetadata);
                 const qualityMetrics: QualityMetrics = await metadataExtractor.extractQualityMetrics(filePath);
+                console.warn(qualityMetrics);
                 const contentMetadata: ContentMetadata = await metadataExtractor.extractContentMetadata(filePath);
+                console.warn(contentMetadata);
 
 
                 const gopCreationResponse : GopResult = await gopCreator.createGopSegments(filePath);
+                console.warn(gopCreationResponse);
 
                 for (const segment of gopCreationResponse.segments){
                     const stream = await objectService.getFromTemp(segment.path);
-                    const gopKey: string = `${key}/gop/${segment.sequence}`; 
+                    const gopKey: string = `${key}/gops/${segment.sequence}`; 
                     const uploadResult = await objectService.uploadObject(stream,gopKey);
                 }
             }
@@ -175,6 +182,7 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
         }
 
     } catch(error){
+        console.warn(error);
         return {
             statusCode:503,
             message: "Failure",
