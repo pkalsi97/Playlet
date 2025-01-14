@@ -24,7 +24,6 @@ phases:
       - chmod +x ffmpeg/ffmpeg ffmpeg/ffprobe
       # Fixed: correct filename in cleanup
       - rm -rf ffmpeg-git-* ffmpeg-git-arm64-static.tar.xz
-      
       # Create layer zip
       - echo "Creating layer zip..."
       - zip -q -r ../../../resource-layer.zip nodejs ffmpeg
