@@ -1,0 +1,9 @@
+src/
+test/
+node_modules/
+.git/
+.gitignore
+README.md
+buildspec.yml
+template.yml
+tsconfig.json

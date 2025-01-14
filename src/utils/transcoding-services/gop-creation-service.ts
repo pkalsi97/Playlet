@@ -2,6 +2,10 @@ import ffmpeg from 'fluent-ffmpeg';
 import * as fs from 'fs';
 import * as path from 'path';
 
+if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH || '/opt/ffmpeg/ffmpeg');
+    ffmpeg.setFfprobePath(process.env.FFPROBE_PATH || '/opt/ffprobe/ffprobe');
+}
 export interface GopConfig {
     keyframeInterval: number;
     forceClosedGop: boolean;

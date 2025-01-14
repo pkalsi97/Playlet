@@ -1,248 +1,312 @@
-import {
-    ObjectService
-} from '../utils/object-service';
+// import * as fs from 'fs';
+// import ffmpeg from 'fluent-ffmpeg';
+// import * as path from 'path';
+// import { exec } from 'child_process';
+// import { promisify } from 'util';
 
-import {
-    MetadataExtractor,
-    ContentMetadata,
-    TechnicalMetadata,
-    QualityMetrics,
-} from '../utils/transcoding-services/content-metadata-service';
+// import {
+//     ObjectService
+// } from '../utils/object-service';
 
-import {
-    BasicValidationResult,
-    StreamValidationResult,
-    ContentValidationService
-} from '../utils/transcoding-services/content-validation-service';
+// import {
+//     MetadataExtractor,
+//     ContentMetadata,
+//     TechnicalMetadata,
+//     QualityMetrics,
+// } from '../utils/transcoding-services/content-metadata-service';
 
-import {
-    GopCreator,
-    GopConfig,
-    GopResult,
-    GopSegment,
-} from '../utils/transcoding-services/gop-creation-service';
+// import {
+//     BasicValidationResult,
+//     StreamValidationResult,
+//     ContentValidationService
+// } from '../utils/transcoding-services/content-validation-service';
 
-import {
-    ObjectServiceError,
-    TranscodingServiceError,
-    InternalServerError,
-    exceptionHandlerFunction,
-    Fault
-} from '../utils/error-handling'
+// import {
+//     GopCreator,
+//     GopConfig,
+//     GopResult,
+//     GopSegment,
+// } from '../utils/transcoding-services/gop-creation-service';
 
-interface S3EventRecord {
-    eventVersion: string;
-    eventSource: string;
-    awsRegion: string;
-    eventTime: string;
-    eventName: string;
-    userIdentity: {
-        principalId: string;
-    };
-    requestParameters: {
-        sourceIPAddress: string;
-    };
-    responseElements: {
-        'x-amz-request-id': string;
-        'x-amz-id-2': string;
-    };
-    s3: {
-        s3SchemaVersion: string;
-        configurationId: string;
-        bucket: {
-            name: string;
-            ownerIdentity: {
-                principalId: string;
-            };
-            arn: string;
-        };
-        object: {
-            key: string;
-            size: number;
-            eTag: string;
-            sequencer: string;
-        };
-    };
-}
+// import {
+//     ObjectServiceError,
+//     TranscodingServiceError,
+//     InternalServerError,
+//     exceptionHandlerFunction,
+//     Fault
+// } from '../utils/error-handling'
 
-interface S3Event {
-    Records: S3EventRecord[];
-}
-interface SQSRecord {
-    messageId: string;
-    receiptHandle: string;
-    body: string;
-    attributes: {
-        ApproximateReceiveCount: string;
-        SentTimestamp: string;
-        SenderId: string;
-        ApproximateFirstReceiveTimestamp: string;
-    };
-    messageAttributes: Record<string, any>;
-    md5OfBody: string;
-    eventSource: string;
-    eventSourceARN: string;
-    awsRegion: string;
-}
-
-interface SQSEvent {
-    Records: SQSRecord[];
-}
+// if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
+//     ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH || '/opt/ffmpeg/ffmpeg');
+//     ffmpeg.setFfprobePath(process.env.FFPROBE_PATH || '/opt/ffprobe/ffprobe');
+// }
 
 
-const objectService = new ObjectService(process.env.AWS_DEFAULT_REGION!,process.env.TRANSPORTSTORAGE_BUCKET_NAME!);
-const contentValidationService = new ContentValidationService(parseInt(process.env.UPLOAD_SIZE_LIMIT!,10));
-const metadataExtractor = new MetadataExtractor();
+// interface S3EventRecord {
+//     eventVersion: string;
+//     eventSource: string;
+//     awsRegion: string;
+//     eventTime: string;
+//     eventName: string;
+//     userIdentity: {
+//         principalId: string;
+//     };
+//     requestParameters: {
+//         sourceIPAddress: string;
+//     };
+//     responseElements: {
+//         'x-amz-request-id': string;
+//         'x-amz-id-2': string;
+//     };
+//     s3: {
+//         s3SchemaVersion: string;
+//         configurationId: string;
+//         bucket: {
+//             name: string;
+//             ownerIdentity: {
+//                 principalId: string;
+//             };
+//             arn: string;
+//         };
+//         object: {
+//             key: string;
+//             size: number;
+//             eTag: string;
+//             sequencer: string;
+//         };
+//     };
+// }
 
-const gopConfig:GopConfig = {
-    keyframeInterval:2,
-    forceClosedGop:true,
-    sceneChangeDetection:false,
-    outputDir:'tmp/gops',
+// interface S3Event {
+//     Records: S3EventRecord[];
+// }
+// interface SQSRecord {
+//     messageId: string;
+//     receiptHandle: string;
+//     body: string;
+//     attributes: {
+//         ApproximateReceiveCount: string;
+//         SentTimestamp: string;
+//         SenderId: string;
+//         ApproximateFirstReceiveTimestamp: string;
+//     };
+//     messageAttributes: Record<string, any>;
+//     md5OfBody: string;
+//     eventSource: string;
+//     eventSourceARN: string;
+//     awsRegion: string;
+// }
+
+// interface SQSEvent {
+//     Records: SQSRecord[];
+// }
+
+
+// const objectService = new ObjectService(process.env.AWS_DEFAULT_REGION!,process.env.TRANSPORTSTORAGE_BUCKET_NAME!);
+// const contentValidationService = new ContentValidationService(parseInt(process.env.UPLOAD_SIZE_LIMIT!,10));
+// const metadataExtractor = new MetadataExtractor();
+
+
+// export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
+//     // console.warn(messages);
+//     try {
+//         for (const message of messages.Records){
+//             const s3Event: S3Event = JSON.parse(message.body);
+
+//             for (const event of s3Event.Records){
+
+//                 const key = event.s3.object.key;
+//                 const object = await objectService.getObject(key);
+//                 const path = await objectService.writeToTemp(object);
+
+//                 console.warn(path);
+
+//                 const basicValidationResult: BasicValidationResult = await contentValidationService.validateBasics(path);
+//                 const streamValidationResult: StreamValidationResult = await contentValidationService.validateStreams(path);
+
+//                 console.warn(basicValidationResult);
+//                 console.warn(streamValidationResult);
+//             };
+//         };
+//         return {
+//             statusCode: 200,
+//             body: 'Task Completed'
+//         };
+        
+//     } catch (error) {
+//         console.error('Error processing event:', error);
+//         throw error;
+//     }
+// };
+
+import ffmpeg from 'fluent-ffmpeg';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import * as fs from 'fs';
+import * as path from 'path';
+
+const EXPECTED_STRUCTURE = {
+    'opt/ffmpeg': ['ffmpeg', 'ffprobe'],
+    'opt/nodejs/node_modules': ['fluent-ffmpeg']
 };
 
-const gopCreation = new GopCreator(gopConfig);
+const possiblePaths = [
+    '/opt/ffmpeg',
+    '/opt/nodejs',
+    '/var/task/ffmpeg',
+    '/var/runtime/ffmpeg',
+    '/var/lang/ffmpeg',
+    '/opt',
+    '/var/task',
+    '/var/runtime'
+];
 
-const initializeObject = async(key:string):Promise<string> =>{
-    
-    const object = await objectService.getObject(key);
-    if (!object) {
-        throw new ObjectServiceError("Unable to get object from Object Storage",503,Fault.SERVER,true);
+const ffmpegPaths = [
+    '/opt/ffmpeg/ffmpeg',
+    '/var/task/ffmpeg',
+    '/usr/local/bin/ffmpeg',
+    '/usr/bin/ffmpeg',
+    '/opt/ffmpeg/ffprobe',
+    '/var/task/ffprobe',
+    '/usr/local/bin/ffprobe',
+    '/usr/bin/ffprobe'
+];
+
+const execAsync = promisify(exec);  
+
+function validateLayerStructure(basePath: string): { valid: boolean; issues: string[] } {
+    const issues: string[] = [];
+    let valid = true;
+
+    for (const [dir, expectedFiles] of Object.entries(EXPECTED_STRUCTURE)) {
+        const fullPath = path.join(basePath, dir);
+        
+        try {
+            if (!fs.existsSync(fullPath)) {
+                issues.push(`Directory ${dir} does not exist`);
+                valid = false;
+                continue;
+            }
+
+            const contents = fs.readdirSync(fullPath);
+            for (const file of expectedFiles) {
+                if (!contents.includes(file)) {
+                    issues.push(`Missing ${file} in ${dir}`);
+                    valid = false;
+                }
+            }
+        } catch (err) {
+            issues.push(`Error checking ${dir}: ${err}`);
+            valid = false;
+        }
     }
 
-    const path = await objectService.writeToTemp(object,key);
-    if (!path) {
-        throw new ObjectServiceError("Unable to Write to tmp",503,Fault.SERVER,true);
-    }
-
-    return path;
-};
+    return { valid, issues };
+}
 
 
-export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
+
+export const preprocessingHandler = async(messages: any): Promise<any> => {
     try {
-        for (const message of messages.Records){
-            const s3Event: S3Event = JSON.parse(message.body);
+        console.warn('=== Layer Testing Started ===');
 
-            for (const event of s3Event.Records){
+        console.warn('\nEnvironment Variables:');
+        console.warn({
+            AWS_LAMBDA_FUNCTION_NAME: process.env.AWS_LAMBDA_FUNCTION_NAME,
+            AWS_LAMBDA_FUNCTION_VERSION: process.env.AWS_LAMBDA_FUNCTION_VERSION,
+            AWS_LAMBDA_FUNCTION_MEMORY_SIZE: process.env.AWS_LAMBDA_FUNCTION_MEMORY_SIZE,
+            LAMBDA_TASK_ROOT: process.env.LAMBDA_TASK_ROOT,
+            LAMBDA_RUNTIME_DIR: process.env.LAMBDA_RUNTIME_DIR
+        });
+        console.warn('\nChecking all possible paths:');
+        possiblePaths.forEach(p => {
+            console.warn(`${p}:`, {
+                exists: fs.existsSync(p),
+                isDirectory: fs.existsSync(p) ? fs.statSync(p).isDirectory() : false,
+                contents: fs.existsSync(p) && fs.statSync(p).isDirectory() ? fs.readdirSync(p) : 'N/A',
+                permissions: fs.existsSync(p) ? fs.statSync(p).mode : 'N/A'
+            });
+        });
 
-                const path = await initializeObject(event.s3.object.key);
-                const basicValidationResult : BasicValidationResult = await contentValidationService.validateBasics(path);
-                console.warn(basicValidationResult)
-                if(!basicValidationResult.isValid){
-                    throw new TranscodingServiceError("Basic Validation Failure",400,Fault.CLIENT,true);
+
+        console.warn('\nRoot Directory Analysis:');
+        const rootContents = fs.readdirSync('/');
+        console.warn('Root contents:', rootContents);
+        rootContents.forEach(item => {
+            const fullPath = path.join('/', item);
+            try {
+                const stats = fs.statSync(fullPath);
+                console.warn(`${item}:`, {
+                    type: stats.isDirectory() ? 'directory' : 'file',
+                    size: stats.size,
+                    permissions: stats.mode
+                });
+            } catch (err) {
+                console.warn(`Error checking ${item}:`, err);
+            }
+        });
+
+        console.warn('\nFluent-FFmpeg Check:');
+        const fluentPaths = [
+            'fluent-ffmpeg/package.json',
+            '/opt/nodejs/node_modules/fluent-ffmpeg/package.json',
+            path.join(process.env.LAMBDA_TASK_ROOT!, 'node_modules/fluent-ffmpeg/package.json')
+        ];
+
+        fluentPaths.forEach(p => {
+            try {
+                const pkg = require(p);
+                console.warn(`Found fluent-ffmpeg at ${p}:`, pkg.version);
+            } catch (err) {
+                console.warn(`Not found at ${p}`);
+            }
+        });
+
+
+        console.warn('\nFFmpeg Binary Check:');
+        for (const ffmpegPath of ffmpegPaths) {
+            try {
+                if (fs.existsSync(ffmpegPath)) {
+                    const stats = fs.statSync(ffmpegPath);
+                    console.warn(`${ffmpegPath}:`, {
+                        size: stats.size,
+                        permissions: stats.mode,
+                        executable: (stats.mode & fs.constants.X_OK) !== 0
+                    });
+
+                    const { stdout } = await execAsync(`${ffmpegPath} -version`);
+                    console.warn('Version info:', stdout.split('\n')[0]);
                 }
+            } catch (err) {
+                console.warn(`Error with ${ffmpegPath}:`, err);
+            }
+        }
 
-                const streamValidationResult : StreamValidationResult = await contentValidationService.validateStreams(path);
-                console.warn(streamValidationResult)
-                const contentMetadata: ContentMetadata = await metadataExtractor.extractContentMetadata(path);
-                console.warn(contentMetadata)
-                const technicalMetadata: TechnicalMetadata = await metadataExtractor.extractTechnicalMetadata(path);
-                console.warn(technicalMetadata)
-                const qualityMetrics: QualityMetrics = await metadataExtractor.extractQualityMetrics(path);
-                console.warn(qualityMetrics)
+        console.warn('\nLayer Structure Validation:');
+        const validation = validateLayerStructure('/');
+        console.warn('Validation result:', validation);
 
-                const gop:GopResult = await gopCreation.createGopSegments(path);
-            
-                for (const segment of gop.segments){
-                    const stream = await objectService.getFromTemp(segment.path);
-                    const gopKey = `${event.s3.object.key}/${segment.path}`
-                    const upload = await objectService.uploadObject(stream,gopKey);
-                }
-            };
-        };
         return {
             statusCode: 200,
-            body: 'Successfully logged events'
+            body: JSON.stringify({
+                message: 'Layer Testing Completed',
+                environment: {
+                    taskRoot: process.env.LAMBDA_TASK_ROOT,
+                    runtimeDir: process.env.LAMBDA_RUNTIME_DIR,
+                    functionName: process.env.AWS_LAMBDA_FUNCTION_NAME,
+                    functionVersion: process.env.AWS_LAMBDA_FUNCTION_VERSION,
+                    memorySize: process.env.AWS_LAMBDA_FUNCTION_MEMORY_SIZE
+                },
+                paths: {
+                    checked: possiblePaths,
+                    existing: possiblePaths.filter(p => fs.existsSync(p))
+                },
+                validation,
+                timestamp: new Date().toISOString()
+            }, null, 2)
         };
-        
     } catch (error) {
-        console.error('Error processing event:', error);
+        console.error('Error in layer testing:', error);
         throw error;
     }
 };
-
-// Process record for DB
-// get object from s3
-// validation
-// metadata extraction
-// gop creation
-// upload gops
-// output for DAG
-
-// -> Storage
-    // Original Gops & Video metadata
-    // Transcoded Gops & meta data
-
-// user/video/originalGops
-// user/video/transcoding/
-
-
-// interface VideoMetadata {
-//     // Original Video Metadata
-//     original: {
-//         duration: number;
-//         size: number;
-//         resolution: {
-//             width: number;
-//             height: number;
-//         };
-//         codec: string;
-//         bitrate: number;
-//         frameRate: number;
-//     };
-
-//     // GOP Information
-//     gops: {
-//         count: number;
-//         duration: number;  // per GOP
-//         paths: string[];
-//         createdAt: string;
-//     };
-
-//     // Transcoding Information
-//     transcoding: {
-//         qualities: {
-//             '360p': {
-//                 resolution: { width: number; height: number; };
-//                 bitrate: number;
-//                 size: number;
-//             };
-//             '480p': { /* same structure */ };
-//             '720p': { /* same structure */ };
-//             '1080p': { /* same structure */ };
-//         };
-//         audio: {
-//             codec: string;
-//             bitrate: number;
-//             sampleRate: number;
-//         };
-//     };
-
-//     // Processing Status
-//     status: {
-//         gopCreation: 'pending' | 'completed' | 'failed';
-//         transcoding: 'pending' | 'completed' | 'failed';
-//         availableQualities: string[];
-//         lastUpdated: string;
-//     };
-
-//     // Streaming Information
-//     streaming: {
-//         masterPlaylistUrl: string;
-//         qualityPlaylistUrls: {
-//             [quality: string]: string;
-//         };
-//         audioPlaylistUrl: string;
-//     };
-
-//     // System Information
-//     system: {
-//         userId: string;
-//         videoId: string;
-//         createdAt: string;
-//         updatedAt: string;
-//         processingTime: number;
-//         storageUsed: number;
-//     };
-// }

@@ -4,7 +4,12 @@ import ffmpeg from 'fluent-ffmpeg';
 import { FfprobeData, FfprobeStream } from 'fluent-ffmpeg';
 import { promisify } from 'util';
 
-interface BasicValidationResult {
+if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH || '/opt/ffmpeg/ffmpeg');
+    ffmpeg.setFfprobePath(process.env.FFPROBE_PATH || '/opt/ffprobe/ffprobe');
+}
+
+export interface BasicValidationResult {
     exists: boolean;
     sizeInBytes: number;
     isWithinSizeLimit: boolean;
@@ -15,7 +20,7 @@ interface BasicValidationResult {
     isValid: boolean;
 }
 
-interface StreamValidationResult {
+export interface StreamValidationResult {
     hasVideoStream: boolean;
     hasAudioStream: boolean;
     isPlayable: boolean;

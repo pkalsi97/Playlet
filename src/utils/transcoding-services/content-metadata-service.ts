@@ -3,7 +3,12 @@ import ffmpeg from 'fluent-ffmpeg';
 import { FfprobeData, FfprobeStream } from 'fluent-ffmpeg';
 import { promisify } from 'util';
 
-interface TechnicalMetadata {
+if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH || '/opt/ffmpeg/ffmpeg');
+    ffmpeg.setFfprobePath(process.env.FFPROBE_PATH || '/opt/ffprobe/ffprobe');
+}
+
+export interface TechnicalMetadata {
     containerFormat: string;
     videoCodec: string;
     audioCodec: string;
@@ -18,12 +23,12 @@ interface TechnicalMetadata {
     colorSpace: string | 'N/A';
 }
 
-interface ContentMetadata {
+export interface ContentMetadata {
     creationDate: string | 'N/A';
     lastModified: string | 'N/A';
 }
 
-interface QualityMetrics {
+export interface QualityMetrics {
     videoQualityScore: number | 'N/A';
     audioQualityScore: number | 'N/A';
     corruptionStatus: {

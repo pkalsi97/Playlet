@@ -63,16 +63,14 @@ export class ObjectService{
         return response.$metadata.httpStatusCode === 204;
     };
 
-    public async writeToTemp(object:GetObjectCommandOutput["Body"],key:string):Promise<string> {
-
+    public async writeToTemp(object:GetObjectCommandOutput["Body"]):Promise<string> {
         const fileName: string = crypto.randomUUID();
         const filePath: string = path.join('/tmp',fileName);
 
         const writeStream = fs.createWriteStream(filePath);
-
         const bytes = await object!.transformToByteArray();
         const readable = Readable.from(Buffer.from(bytes), { objectMode: false });
-    
+        
         await pipeline(readable, writeStream);
         return filePath;
     }

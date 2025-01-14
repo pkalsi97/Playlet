@@ -13,10 +13,12 @@ Globals:
         UPLOAD_SIZE_LIMIT: !Ref UploadSizeLimit
         UPLOAD_TIME_LIMIT: !Ref UploadTimeLimit
         TRANSPORTSTORAGE_BUCKET_NAME: !Ref TransportStorage
+        FFMPEG_PATH: /opt/ffmpeg/ffmpeg
+        FFPROBE_PATH: /opt/ffmpeg/ffprobe
     LoggingConfig:
       ApplicationLogLevel: WARN
       LogFormat: JSON
-      LogGroup: !Ref BackendLogGroup
+      LogGroup: !Ref BackendFuncLogGroup
       SystemLogLevel: WARN
     Tags:
       Application: !Sub ${AppId}
@@ -60,11 +62,11 @@ Parameters:
 
 Resources:
   # Common Logging Group for all lambda
-  BackendLogGroup:
+  BackendFuncLogGroup:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Retain
     Properties:
-      LogGroupName: !Sub /aws/lambda/${AppId}-Backend-Function-Logs
+      LogGroupName: !Sub /aws/lambda/${AppId}-Backend-Func-Logs
   # User Pool
   UserPool:
     Type: AWS::Cognito::UserPool
@@ -115,8 +117,8 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Description: Authentication & Authorization
-      CodeUri: ./
-      Handler: dist/handlers/auth-handler.authHandler
+      CodeUri: ./dist
+      Handler: handlers/auth-handler.authHandler
       Runtime: nodejs18.x
       MemorySize: 1024
       Timeout: 60
@@ -172,8 +174,8 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Description: Upload Management
-      CodeUri: ./
-      Handler: dist/handlers/upload-handler.uploadHandler
+      CodeUri: ./dist
+      Handler: handlers/upload-handler.uploadHandler
       Runtime: nodejs18.x
       MemorySize: 1024
       Timeout: 60
@@ -338,12 +340,14 @@ Resources:
             Condition:
               Bool:
                 aws:SecureTransport: 'false'
+  # Preprocessing Queue
   PreprocessingQueue:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: Preprocessing-Queue
       MessageRetentionPeriod: 345600
       VisibilityTimeout: 240
+      DelaySeconds: 30
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt CommonDLQ.Arn
         maxReceiveCount: 3
@@ -363,16 +367,17 @@ Resources:
                 aws:SourceArn: !Sub arn:${AWS::Partition}:s3:::${AWS::StackName}-transport-${AWS::AccountId}
       Queues:
         - !Ref PreprocessingQueue
+  # Process Handler function
   PreprocessingHandler:
     Type: AWS::Serverless::Function
     Properties:
       Description: !Sub
         - Stack ${AWS::StackName} Function ${ResourceName}
         - ResourceName: PreprocessingHandler
-      CodeUri: ./
-      Handler: dist/handlers/preprocessing-handler.preprocessingHandler
+      CodeUri: ./dist
+      Handler: handlers/preprocessing-handler.preprocessingHandler
       Runtime: nodejs18.x
-      MemorySize: 2500
+      MemorySize: 3000
       Timeout: 240
       Tracing: Active
       Architectures:
@@ -387,7 +392,21 @@ Resources:
           Properties:
             Queue: !GetAtt PreprocessingQueue.Arn
             BatchSize: 1
+      Layers:
+        - !Ref ResourceLayer
+  # DLQ for failed messages 
   CommonDLQ:
     Type: AWS::SQS::Queue
     Properties:
       MessageRetentionPeriod: 345600
+  # Master resource layer for all lambdas
+  ResourceLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      Description: !Sub
+        - Stack ${AWS::StackName} Layer ${ResourceName}
+        - ResourceName: ResourceLayer
+      ContentUri: ./resource-layer.zip
+      RetentionPolicy: Delete
+    Metadata:
+      BuildMethod: nodejs18.x
