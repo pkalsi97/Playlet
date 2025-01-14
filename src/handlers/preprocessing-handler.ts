@@ -104,7 +104,7 @@ if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
 
 const execAsync = promisify(exec);  
 
-const contentValidationService = new ContentValidationService(parseInt(process.env.UPLOAD_TIME_LIMIT!,10));
+const contentValidationService = new ContentValidationService(parseInt(process.env.UPLOAD_SIZE_LIMIT!,10));
 const metadataExtractor = new MetadataExtractor();
 const objectService = new ObjectService(process.env.AWS_DEFAULT_REGION!,process.env.TRANSPORTSTORAGE_BUCKET_NAME!);
 
