@@ -388,6 +388,8 @@ Resources:
         - AmazonS3FullAccess
         - DynamoDBCrudPolicy:
             TableName: !Ref MetadataStorage
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt MediaSegmenterQueue.QueueName
       Events:
         PreprocessingQueue:
           Type: SQS
@@ -400,6 +402,9 @@ Resources:
         Variables:
           METADATASTORAGE_TABLE_NAME: !Ref MetadataStorage
           METADATASTORAGE_TABLE_ARN: !GetAtt MetadataStorage.Arn
+          MEDIASEGMENTERQUEUE_QUEUE_NAME: !GetAtt MediaSegmenterQueue.QueueName
+          MEDIASEGMENTERQUEUE_QUEUE_ARN: !GetAtt MediaSegmenterQueue.Arn
+          MEDIASEGMENTERQUEUE_QUEUE_URL: !Ref MediaSegmenterQueue
   # DLQ for failed messages 
   CommonDLQ:
     Type: AWS::SQS::Queue
@@ -463,3 +468,10 @@ Resources:
           KeyType: RANGE
       StreamSpecification:
         StreamViewType: NEW_AND_OLD_IMAGES
+  MediaSegmenterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt CommonDLQ.Arn
+        maxReceiveCount: 3
+      MessageRetentionPeriod: 345600
