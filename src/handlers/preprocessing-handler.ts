@@ -1,96 +1,52 @@
 import ffmpeg from 'fluent-ffmpeg';
-
 import path from 'path';
+
+import { 
+    SQSEvent,
+    S3Event,
+} from 'aws-lambda';
 
 import {
     GopConfig,
     GopResult,
     GopSegment,
     GopStatus,
+    FinalGopResult,
 } from '../types/gop.types'
-
-import { ObjectService } from '../services/storage/object-service';
-import { MetadataExtractor } from '../services/transcoding/content-metadata-service';
-import { ContentValidationService } from '../services/transcoding/content-validation-service';
-import { GopCreator, } from '../services/transcoding/gop-creation-service';
 
 import {
     ErrorName,
     CustomError,
     exceptionHandlerFunction,
-    Fault
-} from '../utils/error-handling'
+    Fault,
+} from '../utils/error-handling';
 
+import { SourceMetadata } from '../types/metadata.types'
+import { ObjectService } from '../services/storage/object-service';
+import { MetadataExtractor } from '../services/transcoding/content-metadata-service';
+import { ContentValidationService } from '../services/transcoding/content-validation-service';
+import { GopCreator} from '../services/transcoding/gop-creation-service';
 
-interface S3EventRecord {
-    eventVersion: string;
-    eventSource: string;
-    awsRegion: string;
-    eventTime: string;
-    eventName: string;
-    userIdentity: {
-        principalId: string;
-    };
-    requestParameters: {
-        sourceIPAddress: string;
-    };
-    responseElements: {
-        'x-amz-request-id': string;
-        'x-amz-id-2': string;
-    };
-    s3: {
-        s3SchemaVersion: string;
-        configurationId: string;
-        bucket: {
-            name: string;
-            ownerIdentity: {
-                principalId: string;
-            };
-            arn: string;
-        };
-        object: {
-            key: string;
-            size: number;
-            eTag: string;
-            sequencer: string;
-        };
-    };
+interface PreprocessingResult{
+    userId:string;
+    assetId:string;
+    gop:FinalGopResult,
+    metadata:SourceMetadata,
 }
 
-interface S3Event {
-    Records: S3EventRecord[];
-}
-interface SQSRecord {
-    messageId: string;
-    receiptHandle: string;
-    body: string;
-    attributes: {
-        ApproximateReceiveCount: string;
-        SentTimestamp: string;
-        SenderId: string;
-        ApproximateFirstReceiveTimestamp: string;
-    };
-    messageAttributes: Record<string, any>;
-    md5OfBody: string;
-    eventSource: string;
-    eventSourceARN: string;
-    awsRegion: string;
+interface PreprocessingResults{
+    Records:PreprocessingResult[];
 }
 
-interface SQSEvent {
-    Records: SQSRecord[];
+interface KeyOwner {
+    userId: string;
+    assetId: string;
 }
-
 
 if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
     ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH || '/opt/ffmpeg/ffmpeg');
     ffmpeg.setFfprobePath(process.env.FFPROBE_PATH || '/opt/ffprobe/ffprobe');
 }
-
-const contentValidationService = new ContentValidationService();
-const metadataExtractor = new MetadataExtractor();
-const transportObjectService = new ObjectService(process.env.AWS_DEFAULT_REGION!,process.env.TRANSPORTSTORAGE_BUCKET_NAME!);
-const assetObjectService = new ObjectService(process.env.AWS_DEFAULT_REGION!,process.env.CONTENTSTORAGE_BUCKET_NAME!);
 
 const gopConfig:GopConfig = {
     keyframeInterval:2,
@@ -100,31 +56,48 @@ const gopConfig:GopConfig = {
     frameRate:30,
 };
 
+const contentValidationService = new ContentValidationService();
+const metadataExtractor = new MetadataExtractor();
+const transportObjectService = new ObjectService(process.env.AWS_DEFAULT_REGION!,process.env.TRANSPORTSTORAGE_BUCKET_NAME!);
+const assetObjectService = new ObjectService(process.env.AWS_DEFAULT_REGION!,process.env.CONTENTSTORAGE_BUCKET_NAME!);
 const gopCreator = new GopCreator(gopConfig);
 
 const initSourceContentFunc = async(key:string):Promise<string> => {
-
     const object = await transportObjectService.getObject(key);
     if (!object){
         throw new CustomError(ErrorName.OBJECT_SERVICE_ERROR,"Unable to get object from Object Storage",503,Fault.SERVER,true);
     }
 
-    const path = await transportObjectService.writeToTemp(object);
+    const filePath = await transportObjectService.writeToTemp(object);
     if (!path) {
         throw new CustomError(ErrorName.OBJECT_SERVICE_ERROR,"Unable to store object in tmp",503,Fault.SERVER,true);
     }
 
-    return path;
+    await transportObjectService.cleanUpFromTemp(filePath);
+    return filePath;
 };
 
-
-const processGopsFunc = async(key:string,filepath:string):Promise<GopResult> => {
-    const startTime = Date.now();
+const getOwner = (key: string): KeyOwner => {
     // userId/yyyy/mm/hash
     const parts = key.split('/');
-    if (parts.length !== 4){
-        throw new CustomError (ErrorName.PREPROCESSING_ERROR, "Invalid Key Format",503,Fault.SERVER,false);
+    if (parts.length !== 4) {
+        throw new CustomError(
+            ErrorName.PREPROCESSING_ERROR, 
+            "Invalid Key Format",
+            400,  // Changed to 400 as it's a client/input error
+            Fault.CLIENT, 
+            false
+        );
     }
+
+    const userId = parts[0];
+    const assetId = parts[3];
+
+    return { userId, assetId };
+};
+
+const processGopsFunc = async(userId:string,assetId:string,filepath:string):Promise<FinalGopResult> => {
+    const startTime = Date.now();
 
     const gopCreationResponse : GopResult = await gopCreator.createGopSegments(filepath);
                 
@@ -132,8 +105,6 @@ const processGopsFunc = async(key:string,filepath:string):Promise<GopResult> => 
         throw new CustomError(ErrorName.PREPROCESSING_ERROR,"Failed to create Gops",503,Fault.SERVER,true);
     }
 
-    const userId: string = parts[0];
-    const assetId: string = parts[3]; 
 
     const finalGopSegments: GopSegment[] = [];
 
@@ -170,20 +141,30 @@ const processGopsFunc = async(key:string,filepath:string):Promise<GopResult> => 
                 status:GopStatus.UPLOADED,
             };
             finalGopSegments.push(finalSegment);
+
+            await transportObjectService.cleanUpFromTemp(segment.path);
         })
     );
 
     const totalUploadTime = Date.now() - startTime;
 
-    return {
+    const result:FinalGopResult = {
         success:true,
-        timeTaken:gopCreationResponse.timeTaken + totalUploadTime,
+        timeTaken:{
+            production:gopCreationResponse.timeTaken,
+            upload:totalUploadTime,
+        },
         segments:finalGopSegments.sort((a, b) => a.sequence - b.sequence),
     }
+
+    return result;
 };
 
-
 export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
+
+    const preprocessingResults:PreprocessingResults = {
+        Records:[],
+    }
 
     try{
         for (const message of messages.Records){
@@ -211,14 +192,35 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
                     metadataExtractor.extractContentMetadata(filePath)
                 ]);
 
+                const sourceMetadata:SourceMetadata ={
+                    validation:{
+                        basic:basicValidation,
+                        stream:streamValidation
+                    },
+                    metadata:{
+                        technical:technicalMetadata,
+                        quality:qualityMetrics,
+                        content:contentMetadata,
+                    }
+                };
                 // Gop Creations & Storage in Content Storage
-                const finalGopOutput = await processGopsFunc(key,filePath);
+                const owner:KeyOwner = getOwner(key);
+                const finalGopOutput = await processGopsFunc(owner.userId,owner.assetId,filePath);
+
+                const preprocessingResult:PreprocessingResult = {
+                    userId:owner.userId,
+                    assetId:owner.assetId,
+                    gop:finalGopOutput,
+                    metadata:sourceMetadata,
+                }
+                preprocessingResults.Records.push(preprocessingResult);
             }
         }
 
         return{
             statusCode:200,
             message: "Success",
+            data:preprocessingResults,
         }
 
     } catch(error){

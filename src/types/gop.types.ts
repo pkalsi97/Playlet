@@ -29,8 +29,8 @@ export interface GopResult {
 export interface FinalGopResult {
     success: boolean;
     timeTaken:{
-        production:string;
-        Upload:string;
+        production:number;
+        upload:number;
     }
     segments:GopSegment[];
 }
