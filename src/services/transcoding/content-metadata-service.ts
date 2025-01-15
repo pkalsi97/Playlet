@@ -3,43 +3,15 @@ import ffmpeg from 'fluent-ffmpeg';
 import { FfprobeData, FfprobeStream } from 'fluent-ffmpeg';
 import { promisify } from 'util';
 
+import {
+    TechnicalMetadata,
+    QualityMetrics,
+    ContentMetadata
+} from '../../types/metadata.types'
+
 if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
     ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH || '/opt/ffmpeg/ffmpeg');
     ffmpeg.setFfprobePath(process.env.FFPROBE_PATH || '/opt/ffprobe/ffprobe');
-}
-
-export interface TechnicalMetadata {
-    containerFormat: string;
-    videoCodec: string;
-    audioCodec: string;
-    duration: any;
-    bitrate: any;
-    frameRate: string | 'N/A';
-    resolution: {
-        width: number | 'N/A';
-        height: number | 'N/A';
-    };
-    aspectRatio: string | 'N/A';
-    colorSpace: string | 'N/A';
-}
-
-export interface ContentMetadata {
-    creationDate: string | 'N/A';
-    lastModified: string | 'N/A';
-}
-
-export interface QualityMetrics {
-    videoQualityScore: number | 'N/A';
-    audioQualityScore: number | 'N/A';
-    corruptionStatus: {
-        isCorrupted: boolean;
-        details: string;
-    };
-    missingFrames: number | 'N/A';
-    audioSync: {
-        inSync: boolean;
-        offsetMs: number | 'N/A';
-    };
 }
 
 export class MetadataExtractor {

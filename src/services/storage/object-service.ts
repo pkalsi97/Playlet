@@ -4,7 +4,6 @@ import crypto from 'crypto';
 
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import type { ReadableStream as WebReadableStream } from 'stream/web';
 
 import {
     S3Client,

@@ -4,28 +4,15 @@ import ffmpeg from 'fluent-ffmpeg';
 import { FfprobeData, FfprobeStream } from 'fluent-ffmpeg';
 import { promisify } from 'util';
 
+import {
+    BasicValidationResult,
+    StreamValidationResult,
+} from '../../types/metadata.types'
+
 if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
     ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH || '/opt/ffmpeg/ffmpeg');
     ffmpeg.setFfprobePath(process.env.FFPROBE_PATH || '/opt/ffprobe/ffprobe');
 }
-
-export interface BasicValidationResult {
-    exists: boolean;
-    sizeInBytes: number;
-    containerFormat: string;
-    detectedFormats: string;
-    videoCodec: string;
-    audioCodec: string;
-    isValid: boolean;
-}
-
-export interface StreamValidationResult {
-    hasVideoStream: boolean;
-    hasAudioStream: boolean;
-    isPlayable: boolean;
-    hasCorruptFrames: boolean;
-    error?: string;
-};
 
 export class ContentValidationService {
     private readonly supportedFormats = ['mp4', 'mov', 'avi', 'mkv'];

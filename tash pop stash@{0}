@@ -1,0 +1,183 @@
+[1mdiff --git a/src/handlers/auth-handler.ts b/src/handlers/auth-handler.ts[m
+[1mindex c7bb56d..938bc53 100644[m
+[1m--- a/src/handlers/auth-handler.ts[m
+[1m+++ b/src/handlers/auth-handler.ts[m
+[36m@@ -13,18 +13,18 @@[m [mimport {[m
+ [m
+ import {[m
+     AuthService[m
+[31m-} from '../utils/auth-service'[m
+[32m+[m[32m} from '../services/auth/auth-service'[m
+ [m
+ import {[m
+     IRequest,[m
+     IResponse[m
+[31m-} from '../utils/types/request-response.types'[m
+[32m+[m[32m} from '../types/request-response.types'[m
+ [m
+ import {[m
+     ValidationField,[m
+     ValidationResponse,[m
+     ValidationService[m
+[31m-} from '../utils/validation-service'[m
+[32m+[m[32m} from '../services/auth/validation-service'[m
+ [m
+ const authService = new AuthService([m
+     process.env.USER_POOL_ID!,[m
+[1mdiff --git a/src/handlers/preprocessing-handler.ts b/src/handlers/preprocessing-handler.ts[m
+[1mindex 9f4939d..08992e6 100644[m
+[1m--- a/src/handlers/preprocessing-handler.ts[m
+[1m+++ b/src/handlers/preprocessing-handler.ts[m
+[36m@@ -1,27 +1,18 @@[m
+ import ffmpeg from 'fluent-ffmpeg';[m
+[31m-import {[m
+[31m-    ObjectService[m
+[31m-} from '../utils/object-service';[m
+[31m-[m
+[31m-import {[m
+[31m-    MetadataExtractor,[m
+[31m-    ContentMetadata,[m
+[31m-    TechnicalMetadata,[m
+[31m-    QualityMetrics,[m
+[31m-} from '../utils/transcoding-services/content-metadata-service';[m
+ [m
+[31m-import {[m
+[31m-    BasicValidationResult,[m
+[31m-    StreamValidationResult,[m
+[31m-    ContentValidationService[m
+[31m-} from '../utils/transcoding-services/content-validation-service';[m
+[32m+[m[32mimport path from 'path';[m
+ [m
+ import {[m
+[31m-    GopCreator,[m
+     GopConfig,[m
+     GopResult,[m
+     GopSegment,[m
+[31m-} from '../utils/transcoding-services/gop-creation-service';[m
+[32m+[m[32m    GopStatus,[m
+[32m+[m[32m} from '../types/gop.types'[m
+[32m+[m
+[32m+[m[32mimport { ObjectService } from '../services/storage/object-service';[m
+[32m+[m[32mimport { MetadataExtractor } from '../services/transcoding/content-metadata-service';[m
+[32m+[m[32mimport { ContentValidationService } from '../services/transcoding/content-validation-service';[m
+[32m+[m[32mimport { GopCreator, } from '../services/transcoding/gop-creation-service';[m
+ [m
+ import {[m
+     ErrorName,[m
+[36m@@ -90,6 +81,7 @@[m [minterface SQSEvent {[m
+     Records: SQSRecord[];[m
+ }[m
+ [m
+[32m+[m
+ if (process.env.AWS_LAMBDA_FUNCTION_NAME) {[m
+     ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH || '/opt/ffmpeg/ffmpeg');[m
+     ffmpeg.setFfprobePath(process.env.FFPROBE_PATH || '/opt/ffprobe/ffprobe');[m
+[36m@@ -97,7 +89,8 @@[m [mif (process.env.AWS_LAMBDA_FUNCTION_NAME) {[m
+ [m
+ const contentValidationService = new ContentValidationService();[m
+ const metadataExtractor = new MetadataExtractor();[m
+[31m-const objectService = new ObjectService(process.env.AWS_DEFAULT_REGION!,process.env.TRANSPORTSTORAGE_BUCKET_NAME!);[m
+[32m+[m[32mconst transportObjectService = new ObjectService(process.env.AWS_DEFAULT_REGION!,process.env.TRANSPORTSTORAGE_BUCKET_NAME!);[m
+[32m+[m[32mconst assetObjectService = new ObjectService(process.env.AWS_DEFAULT_REGION!,process.env.CONTENTSTORAGE_BUCKET_NAME!);[m
+ [m
+ const gopConfig:GopConfig = {[m
+     keyframeInterval:2,[m
+[36m@@ -111,12 +104,12 @@[m [mconst gopCreator = new GopCreator(gopConfig);[m
+ [m
+ const initSourceContentFunc = async(key:string):Promise<string> => {[m
+ [m
+[31m-    const object = await objectService.getObject(key);[m
+[32m+[m[32m    const object = await transportObjectService.getObject(key);[m
+     if (!object){[m
+         throw new CustomError(ErrorName.OBJECT_SERVICE_ERROR,"Unable to get object from Object Storage",503,Fault.SERVER,true);[m
+     }[m
+ [m
+[31m-    const path = await objectService.writeToTemp(object);[m
+[32m+[m[32m    const path = await transportObjectService.writeToTemp(object);[m
+     if (!path) {[m
+         throw new CustomError(ErrorName.OBJECT_SERVICE_ERROR,"Unable to store object in tmp",503,Fault.SERVER,true);[m
+     }[m
+[36m@@ -124,6 +117,72 @@[m [mconst initSourceContentFunc = async(key:string):Promise<string> => {[m
+     return path;[m
+ };[m
+ [m
+[32m+[m
+[32m+[m[32mconst processGopsFunc = async(key:string,filepath:string):Promise<GopResult> => {[m
+[32m+[m[32m    const startTime = Date.now();[m
+[32m+[m[32m    // userId/yyyy/mm/hash[m
+[32m+[m[32m    const parts = key.split('/');[m
+[32m+[m[32m    if (parts.length !== 4){[m
+[32m+[m[32m        throw new CustomError (ErrorName.PREPROCESSING_ERROR, "Invalid Key Format",503,Fault.SERVER,false);[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    const gopCreationResponse : GopResult = await gopCreator.createGopSegments(filepath);[m
+[32m+[m[41m                [m
+[32m+[m[32m    if(!gopCreationResponse || !gopCreationResponse.success){[m
+[32m+[m[32m        throw new CustomError(ErrorName.PREPROCESSING_ERROR,"Failed to create Gops",503,Fault.SERVER,true);[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    const userId: string = parts[0];[m
+[32m+[m[32m    const assetId: string = parts[3];[m[41m [m
+[32m+[m
+[32m+[m[32m    const finalGopSegments: GopSegment[] = [];[m
+[32m+[m
+[32m+[m[32m    await Promise.all([m
+[32m+[m[32m        gopCreationResponse.segments.map(async (segment)=>{[m
+[32m+[m[32m            const object = await transportObjectService.getFromTemp(segment.path);[m
+[32m+[m[32m            if(!object){[m
+[32m+[m[32m                throw new CustomError([m
+[32m+[m[32m                    ErrorName.PREPROCESSING_ERROR,[m
+[32m+[m[32m                    `Unable to Fetch gop from tmp: ${segment.path}`,[m
+[32m+[m[32m                    503,[m
+[32m+[m[32m                    Fault.SERVER,[m
+[32m+[m[32m                    false[m
+[32m+[m[32m                );[m
+[32m+[m[32m            }[m
+[32m+[m
+[32m+[m[32m            const fileName = path.basename(segment.path);[m
+[32m+[m[32m            const gopKey = `${userId}/${assetId}/${fileName}`;[m
+[32m+[m
+[32m+[m[32m            const uploadGop = await assetObjectService.uploadObject(object, gopKey);[m
+[32m+[m[32m            if (!uploadGop) {[m
+[32m+[m[32m                throw new CustomError([m
+[32m+[m[32m                    ErrorName.OBJECT_SERVICE_ERROR,[m
+[32m+[m[32m                    `Unable to store gop in Asset Storage: ${gopKey}`,[m
+[32m+[m[32m                    503,[m
+[32m+[m[32m                    Fault.SERVER,[m
+[32m+[m[32m                    false[m
+[32m+[m[32m                );[m
+[32m+[m[32m            }[m
+[32m+[m
+[32m+[m[32m            const finalSegment:GopSegment = {[m
+[32m+[m[32m                sequence:segment.sequence,[m
+[32m+[m[32m                path: gopKey,[m
+[32m+[m[32m                status:GopStatus.UPLOADED,[m
+[32m+[m[32m            };[m
+[32m+[m[32m            finalGopSegments.push(finalSegment);[m
+[32m+[m[32m        })[m
+[32m+[m[32m    );[m
+[32m+[m
+[32m+[m[32m    const totalUploadTime = Date.now() - startTime;[m
+[32m+[m
+[32m+[m[32m    return {[m
+[32m+[m[32m        success:true,[m
+[32m+[m[32m        timeTaken:gopCreationResponse.timeTaken + totalUploadTime,[m
+[32m+[m[32m        segments:finalGopSegments.sort((a, b) => a.sequence - b.sequence),[m
+[32m+[m[32m    }[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m
+ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {[m
+ [m
+     try{[m
+[36m@@ -131,33 +190,29 @@[m [mexport const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {[m
+             const s3Events:S3Event = JSON.parse(message.body);[m
+ [m
+             for (const event of s3Events.Records){[m
+[31m-[m
+[32m+[m[32m                // Get the source object and store it in tmp[m
+                 const key: string = event.s3.object.key;[m
+                 const filePath: string = await initSourceContentFunc(key);[m
+[31m-                console.warn(filePath);[m
+ [m
+[31m-                const b

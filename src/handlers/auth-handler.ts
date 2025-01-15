@@ -13,18 +13,18 @@ import {
 
 import {
     AuthService
-} from '../utils/auth-service'
+} from '../services/auth/auth-service'
 
 import {
     IRequest,
     IResponse
-} from '../utils/request-response'
+} from '../types/request-response.types'
 
 import {
     ValidationField,
     ValidationResponse,
     ValidationService
-} from '../utils/validation-service'
+} from '../services/auth/validation-service'
 
 const authService = new AuthService(
     process.env.USER_POOL_ID!,

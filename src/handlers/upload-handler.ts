@@ -14,22 +14,20 @@ import {
 import {
     IRequest,
     IResponse
-} from '../utils/request-response'
+} from '../types/request-response.types'
 
 import {
     ValidationField,
     ValidationResponse,
     ValidationService
-} from '../utils/validation-service'
+} from '../services/auth/validation-service'
 
 import {
     UploadService,
     UploadServiceResponse
-} from "../utils/upload-service"
+} from "../services/storage/upload-service"
 
-import {
-    AuthService
-} from "../utils/auth-service"
+import { AuthService } from "../services/auth/auth-service"
 
 
 const uploadService = new UploadService(

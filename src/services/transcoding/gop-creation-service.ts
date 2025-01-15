@@ -1,31 +1,16 @@
 import ffmpeg from 'fluent-ffmpeg';
 import * as fs from 'fs';
 import * as path from 'path';
+import {
+    GopConfig,
+    GopResult,
+    GopSegment,
+    GopStatus,
+} from '../../types/gop.types'
 
 if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
     ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH || '/opt/ffmpeg/ffmpeg');
     ffmpeg.setFfprobePath(process.env.FFPROBE_PATH || '/opt/ffprobe/ffprobe');
-}
-export interface GopConfig {
-    keyframeInterval: number;
-    forceClosedGop: boolean;
-    sceneChangeDetection: boolean;
-    outputDir: string;
-    frameRate?: number;
-    preset?: string;
-    crf?: number;           
-}
-
-export interface GopSegment {
-    sequence: number;
-    path: string;
-}
-
-export interface GopResult {
-    success: boolean;
-    error?: string;
-    timeTaken: number;
-    segments: GopSegment[];
 }
 
 export class GopCreator {
@@ -85,7 +70,8 @@ export class GopCreator {
                 .sort()
                 .map((file, index) => ({
                     sequence: index,
-                    path: path.join(this.config.outputDir, file)
+                    path: path.join(this.config.outputDir, file),
+                    status: GopStatus.PROCESSED,
                 }));
 
             return {
