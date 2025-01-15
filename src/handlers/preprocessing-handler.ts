@@ -180,6 +180,8 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
                 ]);
 
                 if (!basicValidation.isValid || !streamValidation.isPlayable || streamValidation.error){
+                    console.log(basicValidation);
+                    console.log(streamValidation);
                     throw new CustomError (ErrorName.VALIDATION_ERROR,"Provided Content is not Valid",400,Fault.CLIENT,true);
                 }
 
@@ -189,7 +191,7 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
                     metadataExtractor.extractQualityMetrics(filePath),
                     metadataExtractor.extractContentMetadata(filePath)
                 ]);
-
+                
                 const sourceMetadata:SourceMetadata ={
                     validation:{
                         basic:basicValidation,
@@ -201,10 +203,11 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
                         content:contentMetadata,
                     }
                 };
+                console.warn(sourceMetadata);
                 // Gop Creations & Storage in Content Storage
                 const owner:KeyOwner = getOwner(key);
                 const finalGopOutput = await processGopsFunc(owner.userId,owner.assetId,filePath);
-
+                console.warn(finalGopOutput);
                 const preprocessingResult:PreprocessingResult = {
                     userId:owner.userId,
                     assetId:owner.assetId,
