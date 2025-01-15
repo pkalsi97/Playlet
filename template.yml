@@ -346,11 +346,11 @@ Resources:
     Properties:
       QueueName: Preprocessing-Queue
       MessageRetentionPeriod: 345600
-      VisibilityTimeout: 240
+      VisibilityTimeout: 120
       DelaySeconds: 30
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt CommonDLQ.Arn
-        maxReceiveCount: 3
+        maxReceiveCount: 2
   TransportStorageToPreprocessingQueuePermission:
     Type: AWS::SQS::QueuePolicy
     Properties:
@@ -377,8 +377,8 @@ Resources:
       CodeUri: ./dist
       Handler: handlers/preprocessing-handler.preprocessingHandler
       Runtime: nodejs18.x
-      MemorySize: 3000
-      Timeout: 240
+      MemorySize: 1024
+      Timeout: 120
       Tracing: Active
       Architectures:
         - arm64
@@ -386,32 +386,6 @@ Resources:
         - AWSLambdaBasicExecutionRole
         - AWSXrayWriteOnlyAccess
         - AmazonS3FullAccess
-        - Statement:
-            - Effect: Allow
-              Action:
-                - s3:GetObject
-                - s3:GetObjectAcl
-                - s3:GetObjectLegalHold
-                - s3:GetObjectRetention
-                - s3:GetObjectTorrent
-                - s3:GetObjectVersion
-                - s3:GetObjectVersionAcl
-                - s3:GetObjectVersionForReplication
-                - s3:GetObjectVersionTorrent
-                - s3:ListBucket
-                - s3:ListBucketMultipartUploads
-                - s3:ListBucketVersions
-                - s3:ListMultipartUploadParts
-                - s3:AbortMultipartUpload
-                - s3:DeleteObject
-                - s3:DeleteObjectVersion
-                - s3:PutObject
-                - s3:PutObjectLegalHold
-                - s3:PutObjectRetention
-                - s3:RestoreObject
-              Resource:
-                - !Sub arn:${AWS::Partition}:s3:::${ContentStorage}
-                - !Sub arn:${AWS::Partition}:s3:::${ContentStorage}/*
         - DynamoDBCrudPolicy:
             TableName: !Ref MetadataStorage
       Events:
@@ -424,8 +398,6 @@ Resources:
         - !Ref ResourceLayer
       Environment:
         Variables:
-          CONTENTSTORAGE_BUCKET_NAME: !Ref ContentStorage
-          CONTENTSTORAGE_BUCKET_ARN: !GetAtt ContentStorage.Arn
           METADATASTORAGE_TABLE_NAME: !Ref MetadataStorage
           METADATASTORAGE_TABLE_ARN: !GetAtt MetadataStorage.Arn
   # DLQ for failed messages 
