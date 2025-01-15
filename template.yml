@@ -444,6 +444,7 @@ Resources:
       RetentionPolicy: Delete
     Metadata:
       BuildMethod: nodejs18.x
+  # Content Storage
   ContentStorage:
     Type: AWS::S3::Bucket
     Properties:
@@ -476,16 +477,17 @@ Resources:
   MetadataStorage:
     Type: AWS::DynamoDB::Table
     Properties:
+      DeletionProtectionEnabled: true
       AttributeDefinitions:
         - AttributeName: userId
           AttributeType: S
-        - AttributeName: userId
+        - AttributeName: assetId
           AttributeType: S
       BillingMode: PAY_PER_REQUEST
       KeySchema:
-        - AttributeName: assetId
-          KeyType: HASH
         - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: assetId
           KeyType: RANGE
       StreamSpecification:
         StreamViewType: NEW_AND_OLD_IMAGES
