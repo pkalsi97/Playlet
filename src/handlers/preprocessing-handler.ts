@@ -6,13 +6,6 @@ import {
     S3Event,
 } from 'aws-lambda';
 
-import {
-    GopConfig,
-    GopResult,
-    GopSegment,
-    GopStatus,
-    FinalGopResult,
-} from '../types/gop.types'
 
 import {
     ErrorName,
@@ -25,12 +18,11 @@ import { SourceMetadata } from '../types/metadata.types'
 import { ObjectService } from '../services/storage/object-service';
 import { MetadataExtractor } from '../services/transcoding/content-metadata-service';
 import { ContentValidationService } from '../services/transcoding/content-validation-service';
-import { GopCreator} from '../services/transcoding/gop-creation-service';
+import { MetadataCache,MetadataPath} from '../services/storage/metadata-storage-service'
 
 interface PreprocessingResult{
     userId:string;
     assetId:string;
-    gop:FinalGopResult,
     metadata:SourceMetadata,
 }
 
@@ -48,19 +40,12 @@ if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
     ffmpeg.setFfprobePath(process.env.FFPROBE_PATH || '/opt/ffprobe/ffprobe');
 }
 
-const gopConfig:GopConfig = {
-    keyframeInterval:2,
-    forceClosedGop:true,
-    sceneChangeDetection:false,
-    outputDir:'/tmp/gops',
-    frameRate:30,
-};
 
 const contentValidationService = new ContentValidationService();
 const metadataExtractor = new MetadataExtractor();
 const transportObjectService = new ObjectService(process.env.AWS_DEFAULT_REGION!,process.env.TRANSPORTSTORAGE_BUCKET_NAME!);
-const assetObjectService = new ObjectService(process.env.AWS_DEFAULT_REGION!,process.env.CONTENTSTORAGE_BUCKET_NAME!);
-const gopCreator = new GopCreator(gopConfig);
+const metadataCache = new MetadataCache(process.env.METADATASTORAGE_TABLE_NAME!,process.env.AWS_DEFAULT_REGION!)
+
 
 const initSourceContentFunc = async(key:string):Promise<string> => {
     const object = await transportObjectService.getObject(key);
@@ -94,66 +79,6 @@ const getOwner = (key: string): KeyOwner => {
     return { userId, assetId };
 };
 
-const processGopsFunc = async(userId:string,assetId:string,filepath:string):Promise<FinalGopResult> => {
-    
-    const gopCreationResponse : GopResult = await gopCreator.createGopSegments(filepath);
-                
-    if(!gopCreationResponse || !gopCreationResponse.success){
-        throw new CustomError(ErrorName.PREPROCESSING_ERROR,"Failed to create Gops",503,Fault.SERVER,true);
-    }
-
-    const finalGopSegments: GopSegment[] = [];
-
-    const uploadStartTime = Date.now();
-    await Promise.all(
-        gopCreationResponse.segments.map(async (segment)=>{
-            const object = await transportObjectService.getFromTemp(segment.path);
-            if(!object){
-                throw new CustomError(
-                    ErrorName.PREPROCESSING_ERROR,
-                    `Unable to Fetch gop from tmp: ${segment.path}`,
-                    503,
-                    Fault.SERVER,
-                    false
-                );
-            }
-
-            const fileName = path.basename(segment.path);
-            const gopKey = `${userId}/${assetId}/gops/${fileName}`;
-
-            const uploadGop = await assetObjectService.uploadObject(object, gopKey);
-            if (!uploadGop) {
-                throw new CustomError(
-                    ErrorName.OBJECT_SERVICE_ERROR,
-                    `Unable to store gop in Asset Storage: ${gopKey}`,
-                    503,
-                    Fault.SERVER,
-                    false
-                );
-            }
-
-            const finalSegment:GopSegment = {
-                sequence:segment.sequence,
-                path: gopKey,
-                status:GopStatus.UPLOADED,
-            };
-            finalGopSegments.push(finalSegment);
-        })
-    );
-
-    const totalUploadTime = (Date.now() - uploadStartTime)/2;
-
-    const result:FinalGopResult = {
-        success:true,
-        timeTaken:{
-            production:gopCreationResponse.timeTaken,
-            upload:totalUploadTime,
-        },
-        segments:finalGopSegments.sort((a, b) => a.sequence - b.sequence),
-    }
-
-    return result;
-};
 
 export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
 
@@ -179,6 +104,10 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
                 if (!basicValidation.isValid || !streamValidation.isPlayable || streamValidation.error){
                     throw new CustomError (ErrorName.VALIDATION_ERROR,"Provided Content is not Valid",400,Fault.CLIENT,true);
                 }
+                            
+                const owner:KeyOwner = getOwner(key);
+
+                await metadataCache.InitializeRecord(owner.userId,owner.assetId);
 
                 // extract useful metadata from the source
                 const [technicalMetadata,qualityMetrics,contentMetadata] = await Promise.all([
@@ -198,77 +127,36 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
                         content:contentMetadata,
                     }
                 };
-                // Gop Creations & Storage in Content Storage
-                const owner:KeyOwner = getOwner(key);
-                const finalGopOutput = await processGopsFunc(owner.userId,owner.assetId,filePath);
-
+ 
                 const preprocessingResult:PreprocessingResult = {
                     userId:owner.userId,
                     assetId:owner.assetId,
-                    gop:finalGopOutput,
                     metadata:sourceMetadata,
                 }
-                console.warn(preprocessingResult);
                 preprocessingResults.Records.push(preprocessingResult);
+                await metadataCache.updateMetadata(owner.userId,owner.assetId,MetadataPath.VALIDATION_BASIC,basicValidation);
+                await metadataCache.updateMetadata(owner.userId,owner.assetId,MetadataPath.VALIDATION_STREAM,streamValidation);
+                await metadataCache.updateMetadata(owner.userId,owner.assetId,MetadataPath.METADATA_TECHNICAL,technicalMetadata);
+                await metadataCache.updateMetadata(owner.userId,owner.assetId,MetadataPath.METADATA_QUALITY,qualityMetrics);
+                await metadataCache.updateMetadata(owner.userId,owner.assetId,MetadataPath.METADATA_CONTENT,contentMetadata);
                 await transportObjectService.cleanUpFromTemp(filePath);
-                await transportObjectService.cleanUpFromTemp('tmp/gops');
             }
         }
 
         return{
             statusCode:200,
-            message: "Success",
-            data:preprocessingResults,
+            message: "Validation Successful",
         }
-
     } catch(error){
-        console.warn(error);
-        return {
-            statusCode:503,
-            message: "Failure",
+        const errorResponse = exceptionHandlerFunction(error);
+        if (error instanceof CustomError && error.name === ErrorName.VALIDATION_ERROR  && error.fault === Fault.CLIENT) {   
+            return {
+                statusCode: 200,
+                message: "Failed but processed",    
+                error: errorResponse
+            };
         }
     }
 };
 
 
-// maybe gop upload time is a lot
-// maybe cleanup time is a lot 
-
-
-
-// - ValidationErrors (Client)
-//   - Format Issues
-//   - Codec Issues
-//   - Size Issues
-//   - Missing Streams
-
-// - ProcessingErrors (Server)
-//   - GOP Creation Failed
-//   - Transcoding Failed
-//   - Resource Exhaustion
-//   - Memory Issues
-
-// - StorageErrors
-//   - S3 Access
-//   - Temp Storage
-//   - Permission Issues
-
-// - SystemErrors
-//   - FFmpeg Failures
-//   - Binary Issues
-//   - Environment Issues
-
-
-// non retryable
-
-//   - Invalid Format
-// - Unsupported Codec
-// - Missing Required Streams
-// - File Too Large
-// - Corrupt File
-
-//Retryable (3 attempts):
-// - S3 Timeouts
-// - FFmpeg Temporary Failures
-// - Resource Constraints
-// - System Load Issues
