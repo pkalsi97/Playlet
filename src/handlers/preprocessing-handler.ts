@@ -14,11 +14,21 @@ import {
     Fault,
 } from '../utils/error-handling';
 
-import { SourceMetadata } from '../types/metadata.types'
+import { SourceMetadata } from '../types/metadata.types';
 import { ObjectService } from '../services/storage/object-service';
 import { MetadataExtractor } from '../services/transcoding/content-metadata-service';
 import { ContentValidationService } from '../services/transcoding/content-validation-service';
-import { MetadataCache,MetadataPath} from '../services/storage/metadata-storage-service'
+
+import { 
+    MetadataCache,
+    MetadataPath,
+    ProcessingStage
+} from '../services/storage/metadata-storage-service';
+
+import { 
+    SQSClient,
+    SendMessageCommand,
+ } from '@aws-sdk/client-sqs';
 
 interface PreprocessingResult{
     userId:string;
@@ -44,7 +54,8 @@ if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
 const contentValidationService = new ContentValidationService();
 const metadataExtractor = new MetadataExtractor();
 const transportObjectService = new ObjectService(process.env.AWS_DEFAULT_REGION!,process.env.TRANSPORTSTORAGE_BUCKET_NAME!);
-const metadataCache = new MetadataCache(process.env.METADATASTORAGE_TABLE_NAME!,process.env.AWS_DEFAULT_REGION!)
+const metadataCache = new MetadataCache(process.env.METADATASTORAGE_TABLE_NAME!,process.env.AWS_DEFAULT_REGION!);
+const sqs = new SQSClient({region:process.env.AWS_DEFAULT_REGION!});
 
 
 const initSourceContentFunc = async(key:string):Promise<string> => {
@@ -95,6 +106,10 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
                 const key: string = event.s3.object.key;
                 const filePath: string = await initSourceContentFunc(key);
 
+                const owner:KeyOwner = getOwner(key);
+                const userId = owner.userId;
+                const assetId = owner.assetId;
+
                 // Run FFprobe Validations on source
                 const [basicValidation, streamValidation] = await Promise.all([
                     contentValidationService.validateBasics(filePath),
@@ -102,12 +117,19 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
                 ]);
 
                 if (!basicValidation.isValid || !streamValidation.isPlayable || streamValidation.error){
-                    throw new CustomError (ErrorName.VALIDATION_ERROR,"Provided Content is not Valid",400,Fault.CLIENT,true);
+                    throw new CustomError (
+                        ErrorName.VALIDATION_ERROR,
+                        "Provided Content is not Valid",
+                        400,
+                        Fault.CLIENT,
+                        true
+                    );
                 }
                             
-                const owner:KeyOwner = getOwner(key);
-
-                await metadataCache.InitializeRecord(owner.userId,owner.assetId);
+    
+                await metadataCache.InitializeRecord(userId,assetId);
+                await metadataCache.updateProgress(userId, assetId, ProcessingStage.UPLOAD);
+                await metadataCache.updateProgress(userId, assetId, ProcessingStage.VALIDATION);
 
                 // extract useful metadata from the source
                 const [technicalMetadata,qualityMetrics,contentMetadata] = await Promise.all([
@@ -115,7 +137,9 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
                     metadataExtractor.extractQualityMetrics(filePath),
                     metadataExtractor.extractContentMetadata(filePath)
                 ]);
-                
+
+                await metadataCache.updateProgress(userId, assetId, ProcessingStage.METADATA);
+
                 const sourceMetadata:SourceMetadata ={
                     validation:{
                         basic:basicValidation,
@@ -134,12 +158,37 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
                     metadata:sourceMetadata,
                 }
                 preprocessingResults.Records.push(preprocessingResult);
-                await metadataCache.updateMetadata(owner.userId,owner.assetId,MetadataPath.VALIDATION_BASIC,basicValidation);
-                await metadataCache.updateMetadata(owner.userId,owner.assetId,MetadataPath.VALIDATION_STREAM,streamValidation);
-                await metadataCache.updateMetadata(owner.userId,owner.assetId,MetadataPath.METADATA_TECHNICAL,technicalMetadata);
-                await metadataCache.updateMetadata(owner.userId,owner.assetId,MetadataPath.METADATA_QUALITY,qualityMetrics);
-                await metadataCache.updateMetadata(owner.userId,owner.assetId,MetadataPath.METADATA_CONTENT,contentMetadata);
+                // update in metadata cache
+                await metadataCache.updateMetadata(userId,assetId,MetadataPath.VALIDATION_BASIC,basicValidation);
+                await metadataCache.updateMetadata(userId,assetId,MetadataPath.VALIDATION_STREAM,streamValidation);
+                await metadataCache.updateMetadata(userId,assetId,MetadataPath.METADATA_TECHNICAL,technicalMetadata);
+                await metadataCache.updateMetadata(userId,assetId,MetadataPath.METADATA_QUALITY,qualityMetrics);
+                await metadataCache.updateMetadata(userId,assetId,MetadataPath.METADATA_CONTENT,contentMetadata);
+                // clean up
                 await transportObjectService.cleanUpFromTemp(filePath);
+
+
+                const sendMessageCommand = new SendMessageCommand({
+                    QueueUrl: process.env.MEDIASEGMENTERQUEUE_QUEUE_URL!,
+                    MessageBody: JSON.stringify({
+                        userId:userId,
+                        assetId:assetId,
+                        transportKey:key,
+                        metadata:sourceMetadata,
+                    })
+            
+                });
+
+                const response = await sqs.send(sendMessageCommand);
+                if(!response || response.$metadata.httpStatusCode !== 200){
+                    throw new CustomError(
+                        ErrorName.INTERNAL_ERROR,
+                        "Unable to send message to queue",
+                        503,
+                        Fault.SERVER,
+                        true
+                    );
+                }
             }
         }
 
