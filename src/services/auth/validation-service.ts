@@ -1,7 +1,5 @@
 // src/utils/validators/types.ts
-import {
-    IRequest
-} from '../../types/request-response.types'
+import { IRequest } from '../../types/request-response.types'
 
 export enum ValidationField {
     REQUEST_BODY = 'REQUEST_BODY',

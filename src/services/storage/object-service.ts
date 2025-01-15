@@ -4,6 +4,7 @@ import crypto from 'crypto';
 
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { Upload } from '@aws-sdk/lib-storage'
 
 import {
     S3Client,
@@ -12,7 +13,6 @@ import {
     GetObjectCommandOutput,
 } from '@aws-sdk/client-s3'
 
-import { Upload } from '@aws-sdk/lib-storage'
 
 export class ObjectService{
     private s3Client: S3Client;
