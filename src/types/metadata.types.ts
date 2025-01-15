@@ -1,3 +1,15 @@
+export interface SourceMetadata {
+    validation:{
+        basic:BasicValidationResult,
+        stream:StreamValidationResult,
+    },
+    metadata:{
+        technical:TechnicalMetadata,
+        quality:QualityMetrics,
+        content:ContentMetadata,
+    }
+}
+
 export interface TechnicalMetadata {
     containerFormat: string;
     videoCodec: string;
