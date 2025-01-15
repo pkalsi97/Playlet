@@ -51,7 +51,7 @@ if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
 const gopConfig:GopConfig = {
     keyframeInterval:2,
     forceClosedGop:true,
-    sceneChangeDetection:true,
+    sceneChangeDetection:false,
     outputDir:'/tmp/gops',
     frameRate:30,
 };
@@ -82,7 +82,7 @@ const getOwner = (key: string): KeyOwner => {
         throw new CustomError(
             ErrorName.PREPROCESSING_ERROR, 
             "Invalid Key Format",
-            400,  // Changed to 400 as it's a client/input error
+            400,
             Fault.CLIENT, 
             false
         );
@@ -95,17 +95,16 @@ const getOwner = (key: string): KeyOwner => {
 };
 
 const processGopsFunc = async(userId:string,assetId:string,filepath:string):Promise<FinalGopResult> => {
-    const startTime = Date.now();
-
+    
     const gopCreationResponse : GopResult = await gopCreator.createGopSegments(filepath);
                 
     if(!gopCreationResponse || !gopCreationResponse.success){
         throw new CustomError(ErrorName.PREPROCESSING_ERROR,"Failed to create Gops",503,Fault.SERVER,true);
     }
 
-
     const finalGopSegments: GopSegment[] = [];
 
+    const uploadStartTime = Date.now();
     await Promise.all(
         gopCreationResponse.segments.map(async (segment)=>{
             const object = await transportObjectService.getFromTemp(segment.path);
@@ -120,7 +119,7 @@ const processGopsFunc = async(userId:string,assetId:string,filepath:string):Prom
             }
 
             const fileName = path.basename(segment.path);
-            const gopKey = `${userId}/${assetId}/${fileName}`;
+            const gopKey = `${userId}/${assetId}/gops/${fileName}`;
 
             const uploadGop = await assetObjectService.uploadObject(object, gopKey);
             if (!uploadGop) {
@@ -139,12 +138,10 @@ const processGopsFunc = async(userId:string,assetId:string,filepath:string):Prom
                 status:GopStatus.UPLOADED,
             };
             finalGopSegments.push(finalSegment);
-
-            await transportObjectService.cleanUpFromTemp(segment.path);
         })
     );
 
-    const totalUploadTime = Date.now() - startTime;
+    const totalUploadTime = (Date.now() - uploadStartTime)/2;
 
     const result:FinalGopResult = {
         success:true,
@@ -179,9 +176,6 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
                     contentValidationService.validateStreams(filePath)
                 ]);
 
-                console.warn(basicValidation);
-                console.warn(streamValidation);
-
                 if (!basicValidation.isValid || !streamValidation.isPlayable || streamValidation.error){
                     throw new CustomError (ErrorName.VALIDATION_ERROR,"Provided Content is not Valid",400,Fault.CLIENT,true);
                 }
@@ -204,12 +198,10 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
                         content:contentMetadata,
                     }
                 };
-                console.warn(sourceMetadata);
                 // Gop Creations & Storage in Content Storage
                 const owner:KeyOwner = getOwner(key);
                 const finalGopOutput = await processGopsFunc(owner.userId,owner.assetId,filePath);
-                
-                console.warn(finalGopOutput);
+
                 const preprocessingResult:PreprocessingResult = {
                     userId:owner.userId,
                     assetId:owner.assetId,
@@ -219,6 +211,7 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
                 console.warn(preprocessingResult);
                 preprocessingResults.Records.push(preprocessingResult);
                 await transportObjectService.cleanUpFromTemp(filePath);
+                await transportObjectService.cleanUpFromTemp('tmp/gops');
             }
         }
 
@@ -236,6 +229,11 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
         }
     }
 };
+
+
+// maybe gop upload time is a lot
+// maybe cleanup time is a lot 
+
 
 
 // - ValidationErrors (Client)
