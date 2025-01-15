@@ -72,8 +72,6 @@ const initSourceContentFunc = async(key:string):Promise<string> => {
     if (!path) {
         throw new CustomError(ErrorName.OBJECT_SERVICE_ERROR,"Unable to store object in tmp",503,Fault.SERVER,true);
     }
-
-    await transportObjectService.cleanUpFromTemp(filePath);
     return filePath;
 };
 
@@ -182,8 +180,6 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
                 ]);
 
                 if (!basicValidation.isValid || !streamValidation.isPlayable || streamValidation.error){
-                    console.warn(basicValidation);
-                    console.warn(streamValidation);
                     throw new CustomError (ErrorName.VALIDATION_ERROR,"Provided Content is not Valid",400,Fault.CLIENT,true);
                 }
 
@@ -217,6 +213,7 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
                 }
                 console.warn(preprocessingResult);
                 preprocessingResults.Records.push(preprocessingResult);
+                await transportObjectService.cleanUpFromTemp(filePath);
             }
         }
 
