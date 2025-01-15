@@ -12,6 +12,14 @@ export enum MetadataPath {
     METADATA_CONTENT = 'metadata.content'
 }
 
+export enum ProcessingStage {
+    UPLOAD = 'upload',
+    VALIDATION = 'validation',
+    METADATA = 'metadata',
+    GOP_CREATION = 'gopCreation',
+    DAG_CREATION = 'dagCreation'
+}
+
 interface UpdateCommandParams {
     UpdateExpression: string;
     ExpressionAttributeNames: Record<string, string>;
@@ -53,15 +61,26 @@ export class MetadataCache {
                         validation: { S: 'PENDING' },
                         processing: { S: 'PENDING' }
                     }
+                },
+                progress: {
+                    M: {
+                        upload: { BOOL: false },
+                        validation: { BOOL: false },
+                        metadata: { BOOL: false },
+                        gopCreation: { BOOL: false },
+                        dagCreation: { BOOL: false },
+                        updatedAt: { S: new Date().toISOString() }
+                    }
                 }
             },
-            //ConditionExpression: 'attribute_not_exists(userId) AND attribute_not_exists(assetId)'
+            ConditionExpression: 'attribute_not_exists(userId) AND attribute_not_exists(assetId)'
         });
 
         const response = await this.dbclient.send(command);
         return response.$metadata.httpStatusCode === 200;
 
     }
+
     public async updateMetadata(userId: string,assetId: string,path: MetadataPath,data: any): Promise<boolean> {
 
         const { UpdateExpression, ExpressionAttributeNames, ExpressionAttributeValues } = this.createUpdateCommand(path, data);
@@ -80,6 +99,30 @@ export class MetadataCache {
         const response = await this.dbclient.send(command);
         return response.$metadata.httpStatusCode === 200;
     }
+
+    public async updateProgress(userId: string, assetId: string, stage: ProcessingStage): Promise<boolean>{
+    
+        const command = new UpdateItemCommand({
+            TableName: this.table,
+            Key: {
+                userId: { S: userId },
+                assetId: { S: assetId }
+            },
+            UpdateExpression: 'SET #progress.#stage = :value, #progress.#updatedAt = :time',
+            ExpressionAttributeNames: {
+                '#progress': 'progress',
+                '#stage': stage,
+                '#updatedAt': 'updatedAt'
+            },
+            ExpressionAttributeValues: {
+                ':value': { BOOL: true },
+                ':time': { S: new Date().toISOString() }
+            }
+        });
+
+        const response = await this.dbclient.send(command);
+        return response.$metadata.httpStatusCode === 200;    
+    };
 
     private readonly UPDATE_PATHS: Record<MetadataPath, string[]> = {
         [MetadataPath.VALIDATION_BASIC]: ['metadata', 'validation', 'basic'],
