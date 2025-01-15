@@ -213,6 +213,7 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
                     gop:finalGopOutput,
                     metadata:sourceMetadata,
                 }
+                console.warn(preprocessingResult);
                 preprocessingResults.Records.push(preprocessingResult);
             }
         }
