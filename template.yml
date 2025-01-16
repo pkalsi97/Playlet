@@ -534,7 +534,7 @@ Resources:
   MediaSegmenterQueue:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: Preprocessing-Queue
+      QueueName: MediaSegmenterQueue-Queue
       MessageRetentionPeriod: 345600
       VisibilityTimeout: 70
       DelaySeconds: 10
