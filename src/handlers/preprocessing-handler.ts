@@ -189,7 +189,7 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
                 }
 
   
-                const task = TaskCreator.createTask(userId,assetId,input,output,TaskType.GOP_CREATION,WorkerType.GOP_WORKER);
+                const task = TaskCreator.createTask(userId,assetId,input,output,TaskType.GOP_CREATION,WorkerType.GOP_WORKER,sourceMetadata);
 
                 const sendMessageCommand = new SendMessageCommand({
                     QueueUrl: process.env.MEDIASEGMENTERQUEUE_QUEUE_URL!,

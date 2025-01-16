@@ -1,4 +1,5 @@
 import { Task,Location,TaskType, WorkerType } from '../types/task.types';
+import crypto from 'crypto';
 
 export class TaskCreator {
     public static createTask(
