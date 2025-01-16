@@ -18,6 +18,14 @@ import { SourceMetadata } from '../types/metadata.types';
 import { ObjectService } from '../services/storage/object-service';
 import { MetadataExtractor } from '../services/transcoding/content-metadata-service';
 import { ContentValidationService } from '../services/transcoding/content-validation-service';
+import { TaskCreator } from '../utils/task-creator';
+
+import { 
+    TaskType,
+    WorkerType,
+    Task,
+    Location,
+} from '../types/task.types';
 
 import { 
     MetadataCache,
@@ -29,6 +37,7 @@ import {
     SQSClient,
     SendMessageCommand,
  } from '@aws-sdk/client-sqs';
+
 
 interface PreprocessingResult{
     userId:string;
@@ -104,6 +113,7 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
             for (const event of s3Events.Records){
                 // Get the source object and store it in tmp
                 const key: string = event.s3.object.key;
+                const bucket: string = event.s3.bucket.name;
                 const filePath: string = await initSourceContentFunc(key);
 
                 const owner:KeyOwner = getOwner(key);
@@ -167,16 +177,25 @@ export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
                 // clean up
                 await transportObjectService.cleanUpFromTemp(filePath);
 
+                // Task Creation
+                const input: Location = {
+                    Bucket: bucket,
+                    Key: key,
+                }
+
+                const output: Location = {
+                    Bucket: process.env.CONTENTSTORAGE_BUCKET_NAME!,
+                    Key: `${userId}/${assetId}/gops`
+                }
+
+  
+                const task = TaskCreator.createTask(userId,assetId,input,output,TaskType.GOP_CREATION,WorkerType.GOP_WORKER);
 
                 const sendMessageCommand = new SendMessageCommand({
                     QueueUrl: process.env.MEDIASEGMENTERQUEUE_QUEUE_URL!,
                     MessageBody: JSON.stringify({
-                        userId:userId,
-                        assetId:assetId,
-                        transportKey:key,
-                        metadata:sourceMetadata,
-                    })
-            
+                        task
+                    })        
                 });
 
                 const response = await sqs.send(sendMessageCommand);
