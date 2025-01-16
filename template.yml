@@ -61,12 +61,18 @@ Parameters:
     Description: File Expiry Days for Transport
 
 Resources:
+  # -----------------------------------------------------------------------------------------------------------------------
+  # LOGGING & MONITORING
+  # -----------------------------------------------------------------------------------------------------------------------
   # Common Logging Group for all lambda
   BackendFuncLogGroup:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Retain
     Properties:
       LogGroupName: !Sub /aws/lambda/${AppId}-Backend-Func-Logs
+  # -----------------------------------------------------------------------------------------------------------------------
+  # AUTHENTICATION & AUTHORIZATION
+  # -----------------------------------------------------------------------------------------------------------------------
   # User Pool
   UserPool:
     Type: AWS::Cognito::UserPool
@@ -112,6 +118,9 @@ Resources:
         - ALLOW_USER_PASSWORD_AUTH
         - ALLOW_REFRESH_TOKEN_AUTH
       PreventUserExistenceErrors: ENABLED
+  # -----------------------------------------------------------------------------------------------------------------------
+  # LAMBDA & LAYERS
+  # -----------------------------------------------------------------------------------------------------------------------
   # Auth Handler Lambda Function
   AuthHandler:
     Type: AWS::Serverless::Function
@@ -222,6 +231,110 @@ Resources:
         Variables:
           TRANSPORTSTORAGE_BUCKET_NAME: !Ref TransportStorage
           TRANSPORTSTORAGE_BUCKET_ARN: !GetAtt TransportStorage.Arn
+  # Process Handler function
+  PreprocessingHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: !Sub
+        - Stack ${AWS::StackName} Function ${ResourceName}
+        - ResourceName: PreprocessingHandler
+      CodeUri: ./dist
+      Handler: handlers/preprocessing-handler.preprocessingHandler
+      Runtime: nodejs18.x
+      MemorySize: 1024
+      Timeout: 120
+      Tracing: Active
+      Architectures:
+        - arm64
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - AWSXrayWriteOnlyAccess
+        - AmazonS3FullAccess
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MetadataStorage
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt MediaSegmenterQueue.QueueName
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt MediaSegmenterQueue.QueueName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:GetObjectAcl
+                - s3:GetObjectLegalHold
+                - s3:GetObjectRetention
+                - s3:GetObjectTorrent
+                - s3:GetObjectVersion
+                - s3:GetObjectVersionAcl
+                - s3:GetObjectVersionForReplication
+                - s3:GetObjectVersionTorrent
+                - s3:ListBucket
+                - s3:ListBucketMultipartUploads
+                - s3:ListBucketVersions
+                - s3:ListMultipartUploadParts
+                - s3:AbortMultipartUpload
+                - s3:DeleteObject
+                - s3:DeleteObjectVersion
+                - s3:PutObject
+                - s3:PutObjectLegalHold
+                - s3:PutObjectRetention
+                - s3:RestoreObject
+              Resource:
+                - !Sub arn:${AWS::Partition}:s3:::${ContentStorage}
+                - !Sub arn:${AWS::Partition}:s3:::${ContentStorage}/*
+      Events:
+        PreprocessingQueue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt PreprocessingQueue.Arn
+            BatchSize: 1
+      Layers:
+        - !Ref ResourceLayer
+      Environment:
+        Variables:
+          METADATASTORAGE_TABLE_NAME: !Ref MetadataStorage
+          METADATASTORAGE_TABLE_ARN: !GetAtt MetadataStorage.Arn
+          MEDIASEGMENTERQUEUE_QUEUE_NAME: !GetAtt MediaSegmenterQueue.QueueName
+          MEDIASEGMENTERQUEUE_QUEUE_ARN: !GetAtt MediaSegmenterQueue.Arn
+          MEDIASEGMENTERQUEUE_QUEUE_URL: !Ref MediaSegmenterQueue
+          CONTENTSTORAGE_BUCKET_NAME: !Ref ContentStorage
+          CONTENTSTORAGE_BUCKET_ARN: !GetAtt ContentStorage.Arn
+  #Media Segmentation Handler
+  MediaSegmenterHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: !Sub
+        - Stack ${AWS::StackName} Function ${ResourceName}
+        - ResourceName: MediaSegmenterHandler
+      CodeUri: ./dist
+      Handler: handlers/segmentation-handler.segmentationHandler
+      Runtime: nodejs18.x
+      MemorySize: 2024
+      Timeout: 60
+      Tracing: Active
+      Architectures:
+        - arm64
+      Events:
+        MediaSegmenterQueue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt MediaSegmenterQueue.Arn
+            BatchSize: 10
+            MaximumBatchingWindowInSeconds: 15
+  # Master resource layer for all lambdas
+  ResourceLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      Description: !Sub
+        - Stack ${AWS::StackName} Layer ${ResourceName}
+        - ResourceName: ResourceLayer
+      ContentUri: ./resource-layer.zip
+      RetentionPolicy: Delete
+    Metadata:
+      BuildMethod: nodejs18.x
+  # -----------------------------------------------------------------------------------------------------------------------
+  # API GATEWAY
+  # -----------------------------------------------------------------------------------------------------------------------
   #AUTH APIs
   AuthAPIs:
     Type: AWS::Serverless::Api
@@ -301,6 +414,9 @@ Resources:
                 type: aws_proxy
                 uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UploadHandler.Arn}/invocations
               responses: {}
+  # -----------------------------------------------------------------------------------------------------------------------
+  # STORAGE
+  # -----------------------------------------------------------------------------------------------------------------------
   #S3 Bucket Used For Uploads & Its Policy
   TransportStorage:
     Type: AWS::S3::Bucket
@@ -340,88 +456,7 @@ Resources:
             Condition:
               Bool:
                 aws:SecureTransport: 'false'
-  # Preprocessing Queue
-  PreprocessingQueue:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: Preprocessing-Queue
-      MessageRetentionPeriod: 345600
-      VisibilityTimeout: 120
-      DelaySeconds: 30
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt CommonDLQ.Arn
-        maxReceiveCount: 2
-  TransportStorageToPreprocessingQueuePermission:
-    Type: AWS::SQS::QueuePolicy
-    Properties:
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: s3.amazonaws.com
-            Action: sqs:SendMessage
-            Resource: !GetAtt PreprocessingQueue.Arn
-            Condition:
-              ArnEquals:
-                aws:SourceArn: !Sub arn:${AWS::Partition}:s3:::${AWS::StackName}-transport-${AWS::AccountId}
-      Queues:
-        - !Ref PreprocessingQueue
-  # Process Handler function
-  PreprocessingHandler:
-    Type: AWS::Serverless::Function
-    Properties:
-      Description: !Sub
-        - Stack ${AWS::StackName} Function ${ResourceName}
-        - ResourceName: PreprocessingHandler
-      CodeUri: ./dist
-      Handler: handlers/preprocessing-handler.preprocessingHandler
-      Runtime: nodejs18.x
-      MemorySize: 1024
-      Timeout: 120
-      Tracing: Active
-      Architectures:
-        - arm64
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - AWSXrayWriteOnlyAccess
-        - AmazonS3FullAccess
-        - DynamoDBCrudPolicy:
-            TableName: !Ref MetadataStorage
-        - SQSSendMessagePolicy:
-            QueueName: !GetAtt MediaSegmenterQueue.QueueName
-      Events:
-        PreprocessingQueue:
-          Type: SQS
-          Properties:
-            Queue: !GetAtt PreprocessingQueue.Arn
-            BatchSize: 1
-      Layers:
-        - !Ref ResourceLayer
-      Environment:
-        Variables:
-          METADATASTORAGE_TABLE_NAME: !Ref MetadataStorage
-          METADATASTORAGE_TABLE_ARN: !GetAtt MetadataStorage.Arn
-          MEDIASEGMENTERQUEUE_QUEUE_NAME: !GetAtt MediaSegmenterQueue.QueueName
-          MEDIASEGMENTERQUEUE_QUEUE_ARN: !GetAtt MediaSegmenterQueue.Arn
-          MEDIASEGMENTERQUEUE_QUEUE_URL: !Ref MediaSegmenterQueue
-  # DLQ for failed messages 
-  CommonDLQ:
-    Type: AWS::SQS::Queue
-    Properties:
-      MessageRetentionPeriod: 345600
-  # Master resource layer for all lambdas
-  ResourceLayer:
-    Type: AWS::Serverless::LayerVersion
-    Properties:
-      Description: !Sub
-        - Stack ${AWS::StackName} Layer ${ResourceName}
-        - ResourceName: ResourceLayer
-      ContentUri: ./resource-layer.zip
-      RetentionPolicy: Delete
-    Metadata:
-      BuildMethod: nodejs18.x
-  # Content Storage
+    # Content Storage
   ContentStorage:
     Type: AWS::S3::Bucket
     Properties:
@@ -451,6 +486,7 @@ Resources:
             Condition:
               Bool:
                 aws:SecureTransport: 'false'
+  # Metadata storage
   MetadataStorage:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -468,10 +504,37 @@ Resources:
           KeyType: RANGE
       StreamSpecification:
         StreamViewType: NEW_AND_OLD_IMAGES
+  # -----------------------------------------------------------------------------------------------------------------------
+  # QUEUES
+  # -----------------------------------------------------------------------------------------------------------------------
+  # Preprocessing Queue
+  PreprocessingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: Preprocessing-Queue
+      MessageRetentionPeriod: 345600
+      VisibilityTimeout: 120
+      DelaySeconds: 30
+  TransportStorageToPreprocessingQueuePermission:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt PreprocessingQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Sub arn:${AWS::Partition}:s3:::${AWS::StackName}-transport-${AWS::AccountId}
+      Queues:
+        - !Ref PreprocessingQueue
   MediaSegmenterQueue:
     Type: AWS::SQS::Queue
     Properties:
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt CommonDLQ.Arn
-        maxReceiveCount: 3
+      QueueName: Preprocessing-Queue
       MessageRetentionPeriod: 345600
+      VisibilityTimeout: 70
+      DelaySeconds: 10
