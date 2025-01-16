@@ -56,22 +56,26 @@ export class MetadataCache {
                         content: { M: {} }
                     }
                 },
-                status: {
-                    M: {
-                        validation: { S: 'PENDING' },
-                        processing: { S: 'PENDING' }
-                    }
-                },
                 progress: {
                     M: {
                         upload: { BOOL: false },
                         validation: { BOOL: false },
                         metadata: { BOOL: false },
                         gopCreation: { BOOL: false },
-                        dagCreation: { BOOL: false },
+                        transcoding: { BOOL: false },
+                        completion: {BOOL: false },
+                        distribution: {BOOL: false },
                         updatedAt: { S: new Date().toISOString() }
                     }
-                }
+                },
+                gops: {
+                    M: {
+                        totalCount: { N: "0" },
+                        completedCount: { N: "0" },
+                        segments: { L: [] }
+                    }
+                },
+                hasCriticalFailure: { BOOL: false }
             },
             ConditionExpression: 'attribute_not_exists(userId) AND attribute_not_exists(assetId)'
         });
