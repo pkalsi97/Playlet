@@ -70,6 +70,14 @@ Resources:
     DeletionPolicy: Retain
     Properties:
       LogGroupName: !Sub /aws/lambda/${AppId}-Backend-Func-Logs
+      RetentionInDays: 7
+  # Common logging for all workers
+  WorkerClusterLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/ecs/${AWS::StackName}-worker-cluster
+      RetentionInDays: 7
   # -----------------------------------------------------------------------------------------------------------------------
   # AUTHENTICATION & AUTHORIZATION
   # -----------------------------------------------------------------------------------------------------------------------
@@ -254,8 +262,6 @@ Resources:
             TableName: !Ref MetadataStorage
         - SQSSendMessagePolicy:
             QueueName: !GetAtt MediaSegmenterQueue.QueueName
-        - SQSSendMessagePolicy:
-            QueueName: !GetAtt MediaSegmenterQueue.QueueName
         - Statement:
             - Effect: Allow
               Action:
@@ -314,6 +320,21 @@ Resources:
       Tracing: Active
       Architectures:
         - arm64
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ecs:RunTask
+                - ecs:StopTask
+                - iam:PassRole
+              Resource: '*'
+      Environment:
+        Variables:
+          WORKER_CLUSTER_ARN: !GetAtt WorkerCluster.Arn
+          GOP_WORKER_TASK_DEFINITION: !Ref GopWorkerTaskDefinition
+          WORKER_SUBNET_ID: !Ref PublicSubnet
+          WORKER_SECURITY_GROUP_ID: !Ref WorkerSecurityGroup
+          TASK_EXECUTION_ROLE_ARN: !GetAtt TaskExecutionRole.Arn
       Events:
         MediaSegmenterQueue:
           Type: SQS
@@ -538,3 +559,340 @@ Resources:
       MessageRetentionPeriod: 345600
       VisibilityTimeout: 70
       DelaySeconds: 10
+  # -----------------------------------------------------------------------------------------------------------------------
+  # VPC SETUP
+  # -----------------------------------------------------------------------------------------------------------------------
+  # Basic VPC Setup
+  WorkerVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-vpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref WorkerVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Single Public Subnet (cost-effective)
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref WorkerVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs ''
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-public-subnet
+
+  # Route Table
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref WorkerVPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-public-rt
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  # Security Group
+  WorkerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Fargate workers
+      VpcId: !Ref WorkerVPC
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+
+  # Essential VPC Endpoints for cost optimization
+  S3Endpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcId: !Ref WorkerVPC
+      RouteTableIds:
+        - !Ref PublicRouteTable
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+            Resource:
+              - !Sub arn:aws:s3:::${TransportStorage}/*
+              - !Sub arn:aws:s3:::${ContentStorage}/*
+
+  DynamoDBEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.dynamodb
+      VpcId: !Ref WorkerVPC
+      RouteTableIds:
+        - !Ref PublicRouteTable
+
+  ECRApiEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.api
+      VpcId: !Ref WorkerVPC
+      VpcEndpointType: Interface
+      SubnetIds:
+        - !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref WorkerSecurityGroup
+      PrivateDnsEnabled: true
+
+  ECRDkrEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.dkr
+      VpcId: !Ref WorkerVPC
+      VpcEndpointType: Interface
+      SubnetIds:
+        - !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref WorkerSecurityGroup
+      PrivateDnsEnabled: true
+
+  CloudWatchLogsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.logs
+      VpcId: !Ref WorkerVPC
+      VpcEndpointType: Interface
+      SubnetIds:
+        - !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref WorkerSecurityGroup
+      PrivateDnsEnabled: true
+
+  # -----------------------------------------------------------------------------------------------------------------------
+  # ECS
+  # -----------------------------------------------------------------------------------------------------------------------
+  GopWorkerRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub ${AWS::StackName}-gop-worker
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      ImageTagMutability: IMMUTABLE
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep only last 2 images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 2
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+      RepositoryPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowPull
+            Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action:
+              - ecr:GetDownloadUrlForLayer
+              - ecr:BatchGetImage
+              - ecr:BatchCheckLayerAvailability
+
+  TranscodeWorkerRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub ${AWS::StackName}-transcode-worker
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      ImageTagMutability: IMMUTABLE
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep only last 2 images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 2
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+      RepositoryPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowPull
+            Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action:
+              - ecr:GetDownloadUrlForLayer
+              - ecr:BatchGetImage
+              - ecr:BatchCheckLayerAvailability
+  # ECS Cluster 
+  WorkerCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${AWS::StackName}-worker-cluster
+      CapacityProviders:
+        - FARGATE
+        - FARGATE_SPOT
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: FARGATE_SPOT
+          Weight: 1
+      Configuration:
+        ExecuteCommandConfiguration:
+          Logging: DEFAULT
+  # -----------------------------------------------------------------------------------------------------------------------
+  # Task Definition
+  # -----------------------------------------------------------------------------------------------------------------------
+  GopWorkerTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${AWS::StackName}-gop-worker
+      RequiresCompatibilities:
+        - FARGATE
+      NetworkMode: awsvpc
+      Cpu: '8192'
+      Memory: '4096'
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt GopWorkerTaskRole.Arn
+      ContainerDefinitions:
+        - Name: gop-worker
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${GopWorkerRepository}:latest
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref WorkerClusterLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: gop-worker
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+  GopWorkerTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: GopWorkerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${TransportStorage}/*
+                  - !Sub arn:${AWS::Partition}:s3:::${ContentStorage}/*
+              - Effect: Allow
+                Action:
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt MetadataStorage.Arn
+  # -----------------------------------------------------------------------------------------------------------------------
+  # Outputs
+  # -----------------------------------------------------------------------------------------------------------------------
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !Ref WorkerVPC
+    Export:
+      Name: !Sub ${AWS::StackName}-VpcId
+
+  SubnetId:
+    Description: Public Subnet ID
+    Value: !Ref PublicSubnet
+    Export:
+      Name: !Sub ${AWS::StackName}-SubnetId
+
+  SecurityGroupId:
+    Description: Security Group ID
+    Value: !Ref WorkerSecurityGroup
+    Export:
+      Name: !Sub ${AWS::StackName}-SecurityGroupId
+
+  GopWorkerRepositoryUri:
+    Description: GOP Worker Repository URI
+    Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${GopWorkerRepository}
+    Export:
+      Name: !Sub ${AWS::StackName}-GopWorkerRepositoryUri
+
+  TranscodeWorkerRepositoryUri:
+    Description: Transcode Worker Repository URI
+    Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${TranscodeWorkerRepository}
+    Export:
+      Name: !Sub ${AWS::StackName}-TranscodeWorkerRepositoryUri
+
+  WorkerClusterArn:
+    Description: Worker Cluster ARN
+    Value: !GetAtt WorkerCluster.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-WorkerClusterArn
+
+  WorkerClusterName:
+    Description: Worker Cluster Name
+    Value: !Ref WorkerCluster
+    Export:
+      Name: !Sub ${AWS::StackName}-WorkerClusterName
