@@ -725,7 +725,7 @@ Resources:
               }
             ]
           }
-      RepositoryPolicy:
+      RepositoryPolicyText: 
         Version: '2012-10-17'
         Statement:
           - Sid: AllowPull
@@ -764,7 +764,7 @@ Resources:
               }
             ]
           }
-      RepositoryPolicy:
+      RepositoryPolicyText: 
         Version: '2012-10-17'
         Statement:
           - Sid: AllowPull
