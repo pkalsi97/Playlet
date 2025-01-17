@@ -61,3 +61,16 @@ export interface StreamValidationResult {
     hasCorruptFrames: boolean;
     error?: string;
 };
+
+export interface ContentValidationResult{
+    success: boolean;
+    error?: string;
+    basic: BasicValidationResult,
+    stream: StreamValidationResult,
+}
+
+export interface ContentMetadataResult {
+    technical:TechnicalMetadata,
+    quality: QualityMetrics,
+    content: ContentMetadata,
+}
