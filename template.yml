@@ -257,91 +257,80 @@ Resources:
       Policies:
         - AWSLambdaBasicExecutionRole
         - AWSXrayWriteOnlyAccess
-        - AmazonS3FullAccess
         - DynamoDBCrudPolicy:
             TableName: !Ref MetadataStorage
-        - SQSSendMessagePolicy:
-            QueueName: !GetAtt MediaSegmenterQueue.QueueName
         - Statement:
             - Effect: Allow
               Action:
-                - s3:GetObject
-                - s3:GetObjectAcl
-                - s3:GetObjectLegalHold
-                - s3:GetObjectRetention
-                - s3:GetObjectTorrent
-                - s3:GetObjectVersion
-                - s3:GetObjectVersionAcl
-                - s3:GetObjectVersionForReplication
-                - s3:GetObjectVersionTorrent
-                - s3:ListBucket
-                - s3:ListBucketMultipartUploads
-                - s3:ListBucketVersions
-                - s3:ListMultipartUploadParts
-                - s3:AbortMultipartUpload
-                - s3:DeleteObject
-                - s3:DeleteObjectVersion
-                - s3:PutObject
-                - s3:PutObjectLegalHold
-                - s3:PutObjectRetention
-                - s3:RestoreObject
+                - ecs:RunTask
+                - ecs:DescribeTasks
+                - ecs:StopTask
               Resource:
-                - !Sub arn:${AWS::Partition}:s3:::${ContentStorage}
-                - !Sub arn:${AWS::Partition}:s3:::${ContentStorage}/*
+                - !Ref PreprocessorTaskDefinition
+                - !Sub arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task/*
+      Layers:
+        - !Ref ResourceLayer
+      Environment:
+        Variables:
+          # Storage related
+          METADATASTORAGE_TABLE_NAME: !Ref MetadataStorage
+          METADATASTORAGE_TABLE_ARN: !GetAtt MetadataStorage.Arn
+          # ECS Task specific variables
+          ECS_CLUSTER_ARN: !GetAtt WorkerCluster.Arn
+          PREPROCESSOR_DEFINITION_ARN: !Ref PreprocessorTaskDefinition
+          ECS_SUBNET_ID: !Ref PublicSubnet
+          ECS_SECURITY_GROUP: !Ref WorkerSecurityGroup
+          ECS_EXECUTION_ROLE: !GetAtt TaskExecutionRole.Arn
       Events:
         PreprocessingQueue:
           Type: SQS
           Properties:
             Queue: !GetAtt PreprocessingQueue.Arn
             BatchSize: 1
-      Layers:
-        - !Ref ResourceLayer
-      Environment:
-        Variables:
-          METADATASTORAGE_TABLE_NAME: !Ref MetadataStorage
-          METADATASTORAGE_TABLE_ARN: !GetAtt MetadataStorage.Arn
-          MEDIASEGMENTERQUEUE_QUEUE_NAME: !GetAtt MediaSegmenterQueue.QueueName
-          MEDIASEGMENTERQUEUE_QUEUE_ARN: !GetAtt MediaSegmenterQueue.Arn
-          MEDIASEGMENTERQUEUE_QUEUE_URL: !Ref MediaSegmenterQueue
-          CONTENTSTORAGE_BUCKET_NAME: !Ref ContentStorage
-          CONTENTSTORAGE_BUCKET_ARN: !GetAtt ContentStorage.Arn
-  #Media Segmentation Handler
-  MediaSegmenterHandler:
+  #Transcoding Handler
+  TranscodingHandler:
     Type: AWS::Serverless::Function
     Properties:
       Description: !Sub
         - Stack ${AWS::StackName} Function ${ResourceName}
-        - ResourceName: MediaSegmenterHandler
+        - ResourceName: TranscodingHandler
       CodeUri: ./dist
-      Handler: handlers/segmentation-handler.segmentationHandler
+      Handler: handlers/transcoding-handler.transcodingHandler
       Runtime: nodejs18.x
       MemorySize: 2024
-      Timeout: 60
+      Timeout: 120
       Tracing: Active
-      Architectures:
-        - arm64
       Policies:
+        - AWSLambdaBasicExecutionRole
+        - AWSXrayWriteOnlyAccess
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MetadataStorage
         - Statement:
             - Effect: Allow
               Action:
                 - ecs:RunTask
+                - ecs:DescribeTasks
                 - ecs:StopTask
-                - iam:PassRole
-              Resource: '*'
+              Resource:
+                - !Ref TranscodeTaskDefinition
+                - !Sub arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task/*
       Environment:
         Variables:
-          WORKER_CLUSTER_ARN: !GetAtt WorkerCluster.Arn
-          GOP_WORKER_TASK_DEFINITION: !Ref GopWorkerTaskDefinition
-          WORKER_SUBNET_ID: !Ref PublicSubnet
-          WORKER_SECURITY_GROUP_ID: !Ref WorkerSecurityGroup
+          # Storage related
+          METADATASTORAGE_TABLE_NAME: !Ref MetadataStorage
+          METADATASTORAGE_TABLE_ARN: !GetAtt MetadataStorage.Arn
+          # ECS Task specific variables
+          CLUSTER_ARN: !GetAtt WorkerCluster.Arn
+          TRANSCODE_TASK_DEFINITION: !Ref TranscodeTaskDefinition
+          SUBNET_ID: !Ref PublicSubnet
+          SECURITY_GROUP_ID: !Ref WorkerSecurityGroup
           TASK_EXECUTION_ROLE_ARN: !GetAtt TaskExecutionRole.Arn
       Events:
-        MediaSegmenterQueue:
+        TranscodingQueue:
           Type: SQS
           Properties:
-            Queue: !GetAtt MediaSegmenterQueue.Arn
-            BatchSize: 10
-            MaximumBatchingWindowInSeconds: 15
+            Queue: !GetAtt TranscodingQueue.Arn
+            BatchSize: 1
   # Master resource layer for all lambdas
   ResourceLayer:
     Type: AWS::Serverless::LayerVersion
@@ -490,6 +479,14 @@ Resources:
       PublicAccessBlockConfiguration:
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+      NotificationConfiguration:
+        QueueConfigurations:
+          - Event: s3:ObjectCreated:*
+            Queue: !GetAtt TranscodingQueue.Arn
+          - Event: s3:ObjectRemoved:*
+            Queue: !GetAtt TranscodingQueue.Arn
+    DependsOn:
+      - ContentStorageToTranscodingQueuePermission
   ContentStorageBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -552,13 +549,33 @@ Resources:
                 aws:SourceArn: !Sub arn:${AWS::Partition}:s3:::${AWS::StackName}-transport-${AWS::AccountId}
       Queues:
         - !Ref PreprocessingQueue
-  MediaSegmenterQueue:
+  TranscodingQueue:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: MediaSegmenterQueue-Queue
+      QueueName: Transcoding-Queue
       MessageRetentionPeriod: 345600
-      VisibilityTimeout: 70
-      DelaySeconds: 10
+      VisibilityTimeout: 120
+      DelaySeconds: 15
+  ContentStorageToTranscodingQueuePermission:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt TranscodingQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Sub arn:${AWS::Partition}:s3:::${AWS::StackName}-contentst-${AWS::AccountId}
+      Queues:
+        - !Ref TranscodingQueue
+  # -----------------------------------------------------------------------------------------------------------------------
+  # WORKERS SETUP
+  # -----------------------------------------------------------------------------------------------------------------------
+
   # -----------------------------------------------------------------------------------------------------------------------
   # VPC SETUP
   # -----------------------------------------------------------------------------------------------------------------------
@@ -659,49 +676,13 @@ Resources:
       RouteTableIds:
         - !Ref PublicRouteTable
 
-  ECRApiEndpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Properties:
-      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.api
-      VpcId: !Ref WorkerVPC
-      VpcEndpointType: Interface
-      SubnetIds:
-        - !Ref PublicSubnet
-      SecurityGroupIds:
-        - !Ref WorkerSecurityGroup
-      PrivateDnsEnabled: true
-
-  ECRDkrEndpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Properties:
-      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.dkr
-      VpcId: !Ref WorkerVPC
-      VpcEndpointType: Interface
-      SubnetIds:
-        - !Ref PublicSubnet
-      SecurityGroupIds:
-        - !Ref WorkerSecurityGroup
-      PrivateDnsEnabled: true
-
-  CloudWatchLogsEndpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Properties:
-      ServiceName: !Sub com.amazonaws.${AWS::Region}.logs
-      VpcId: !Ref WorkerVPC
-      VpcEndpointType: Interface
-      SubnetIds:
-        - !Ref PublicSubnet
-      SecurityGroupIds:
-        - !Ref WorkerSecurityGroup
-      PrivateDnsEnabled: true
-
   # -----------------------------------------------------------------------------------------------------------------------
-  # ECS
+  # ECR
   # -----------------------------------------------------------------------------------------------------------------------
-  GopWorkerRepository:
+  PreprocessorRepository:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: !Sub ${AWS::StackName}-gop-worker
+      RepositoryName: !Sub ${AWS::StackName}-preprocessor
       ImageScanningConfiguration:
         ScanOnPush: true
       ImageTagMutability: IMMUTABLE
@@ -725,17 +706,23 @@ Resources:
               }
             ]
           }
-      RepositoryPolicyText: 
+      RepositoryPolicyText:
         Version: '2012-10-17'
         Statement:
-          - Sid: AllowPull
+          - Sid: AllowPullPush
             Effect: Allow
             Principal:
-              Service: ecs-tasks.amazonaws.com
+              Service:
+                - ecs-tasks.amazonaws.com
+                - ecr.amazonaws.com
             Action:
               - ecr:GetDownloadUrlForLayer
               - ecr:BatchGetImage
               - ecr:BatchCheckLayerAvailability
+              - ecr:PutImage
+              - ecr:InitiateLayerUpload
+              - ecr:UploadLayerPart
+              - ecr:CompleteLayerUpload
 
   TranscodeWorkerRepository:
     Type: AWS::ECR::Repository
@@ -767,14 +754,23 @@ Resources:
       RepositoryPolicyText:
         Version: '2012-10-17'
         Statement:
-          - Sid: AllowPull
+          - Sid: AllowPullPush
             Effect: Allow
             Principal:
-              Service: ecs-tasks.amazonaws.com
+              Service:
+                - ecs-tasks.amazonaws.com
+                - ecr.amazonaws.com
             Action:
               - ecr:GetDownloadUrlForLayer
               - ecr:BatchGetImage
               - ecr:BatchCheckLayerAvailability
+              - ecr:PutImage
+              - ecr:InitiateLayerUpload
+              - ecr:UploadLayerPart
+              - ecr:CompleteLayerUpload
+  # -----------------------------------------------------------------------------------------------------------------------
+  # ECS
+  # -----------------------------------------------------------------------------------------------------------------------
   # ECS Cluster 
   WorkerCluster:
     Type: AWS::ECS::Cluster
@@ -792,27 +788,30 @@ Resources:
   # -----------------------------------------------------------------------------------------------------------------------
   # Task Definition
   # -----------------------------------------------------------------------------------------------------------------------
-  GopWorkerTaskDefinition:
+  # Preprocessor - Task Definition
+  PreprocessorTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      Family: !Sub ${AWS::StackName}-gop-worker
+      Family: !Sub ${AWS::StackName}-preprocessor
       RequiresCompatibilities:
         - FARGATE
       NetworkMode: awsvpc
       Cpu: '4096'
       Memory: '8192'
       ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
-      TaskRoleArn: !GetAtt GopWorkerTaskRole.Arn
+      TaskRoleArn: !GetAtt PreprocessorTaskRole.Arn
       ContainerDefinitions:
-        - Name: gop-worker
-          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${GopWorkerRepository}:latest
+        - Name: preprocessor
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${PreprocessorRepository}:latest
           Essential: true
           LogConfiguration:
             LogDriver: awslogs
             Options:
               awslogs-group: !Ref WorkerClusterLogGroup
               awslogs-region: !Ref AWS::Region
-              awslogs-stream-prefix: gop-worker
+              awslogs-stream-prefix: preprocessor
+              awslogs-create-group: true
+              mode: non-blocking
   TaskExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -825,7 +824,7 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
-  GopWorkerTaskRole:
+  PreprocessorTaskRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -836,7 +835,7 @@ Resources:
               Service: ecs-tasks.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: GopWorkerAccess
+        - PolicyName: PreprocessorAccess
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
@@ -846,6 +845,55 @@ Resources:
                   - s3:PutObject
                 Resource:
                   - !Sub arn:${AWS::Partition}:s3:::${TransportStorage}/*
+              - Effect: Allow
+                Action:
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt MetadataStorage.Arn
+
+  # Transcoding Task Definition
+  TranscodeTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${AWS::StackName}-transcode
+      RequiresCompatibilities:
+        - FARGATE
+      NetworkMode: awsvpc
+      Cpu: '4096'
+      Memory: '8192'
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TranscodeTaskRole.Arn
+      ContainerDefinitions:
+        - Name: transcode
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${TranscodeWorkerRepository}:latest
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref WorkerClusterLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: transcode
+              awslogs-create-group: true
+              mode: non-blocking
+  TranscodeTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: TranscodeAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
                   - !Sub arn:${AWS::Partition}:s3:::${ContentStorage}/*
               - Effect: Allow
                 Action:
@@ -873,11 +921,11 @@ Outputs:
     Export:
       Name: !Sub ${AWS::StackName}-SecurityGroupId
 
-  GopWorkerRepositoryUri:
-    Description: GOP Worker Repository URI
-    Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${GopWorkerRepository}
+  PreprocessorRepositoryUri:
+    Description: Preprocessor Repository URI
+    Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${PreprocessorRepository}
     Export:
-      Name: !Sub ${AWS::StackName}-GopWorkerRepositoryUri
+      Name: !Sub ${AWS::StackName}-PreprocessorRepositoryUri
 
   TranscodeWorkerRepositoryUri:
     Description: Transcode Worker Repository URI
