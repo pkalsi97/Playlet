@@ -6,7 +6,8 @@ import { promisify } from 'util';
 import {
     TechnicalMetadata,
     QualityMetrics,
-    ContentMetadata
+    ContentMetadata,
+    ContentMetadataResult
 } from '../../types/metadata.types'
 
 if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
@@ -21,7 +22,21 @@ export class MetadataExtractor {
         this.ffprobe = promisify(ffmpeg.ffprobe);
     }
 
-    public async extractTechnicalMetadata(filePath: string): Promise<TechnicalMetadata> {
+    public async getContentMetadata(filePath: string): Promise<ContentMetadataResult> {
+        const [technicalMetadata,qualityMetrics,contentMetadata] = await Promise.all([
+            this.extractTechnicalMetadata(filePath),
+            this.extractQualityMetrics(filePath),
+            this.extractContentMetadata(filePath)
+        ]);
+
+        return{
+            technical:technicalMetadata,
+            quality:qualityMetrics,
+            content:contentMetadata,
+        }
+    }
+
+    private async extractTechnicalMetadata(filePath: string): Promise<TechnicalMetadata> {
         const metadata = await this.ffprobe(filePath).catch(() => null);
         if (!metadata) {
             return this.getDefaultTechnicalMetadata();
@@ -50,7 +65,7 @@ export class MetadataExtractor {
         };
     }
 
-    public async extractContentMetadata(filePath: string): Promise<ContentMetadata> {
+    private async extractContentMetadata(filePath: string): Promise<ContentMetadata> {
         const metadata = await this.ffprobe(filePath).catch(() => null);
         if (!metadata) {
             return this.getDefaultContentMetadata();
@@ -69,7 +84,7 @@ export class MetadataExtractor {
         };
     }
 
-    public async extractQualityMetrics(filePath: string): Promise<QualityMetrics> {
+    private async extractQualityMetrics(filePath: string): Promise<QualityMetrics> {
         const metadata = await this.ffprobe(filePath).catch(() => null);
         if (!metadata) {
             return this.getDefaultQualityMetrics();

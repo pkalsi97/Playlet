@@ -17,7 +17,9 @@ export enum ProcessingStage {
     VALIDATION = 'validation',
     METADATA = 'metadata',
     GOP_CREATION = 'gopCreation',
-    DAG_CREATION = 'dagCreation'
+    TRANSCODING = 'transcoding',
+    COMPLETION = 'completion',
+    DISTRIBUTION = 'distribution'
 }
 
 interface UpdateCommandParams {
@@ -65,7 +67,8 @@ export class MetadataCache {
                         transcoding: { BOOL: false },
                         completion: {BOOL: false },
                         distribution: {BOOL: false },
-                        updatedAt: { S: new Date().toISOString() }
+                        updatedAt: { S: new Date().toISOString() },
+                        hasCriticalFailure: { BOOL: false }
                     }
                 },
                 gops: {
@@ -75,9 +78,7 @@ export class MetadataCache {
                         segments: { L: [] }
                     }
                 },
-                hasCriticalFailure: { BOOL: false }
             },
-            ConditionExpression: 'attribute_not_exists(userId) AND attribute_not_exists(assetId)'
         });
 
         const response = await this.dbclient.send(command);
@@ -104,29 +105,43 @@ export class MetadataCache {
         return response.$metadata.httpStatusCode === 200;
     }
 
-    public async updateProgress(userId: string, assetId: string, stage: ProcessingStage): Promise<boolean>{
-    
+    public async updateProgress(userId: string, assetId: string, stage: ProcessingStage, value: boolean): Promise<boolean> {
         const command = new UpdateItemCommand({
             TableName: this.table,
             Key: {
                 userId: { S: userId },
                 assetId: { S: assetId }
             },
-            UpdateExpression: 'SET #progress.#stage = :value, #progress.#updatedAt = :time',
+            UpdateExpression: 'SET progress.#stage = :value, progress.updatedAt = :time',
             ExpressionAttributeNames: {
-                '#progress': 'progress',
-                '#stage': stage,
-                '#updatedAt': 'updatedAt'
+                '#stage': stage
             },
             ExpressionAttributeValues: {
-                ':value': { BOOL: true },
+                ':value': { BOOL: value },
                 ':time': { S: new Date().toISOString() }
             }
         });
 
         const response = await this.dbclient.send(command);
-        return response.$metadata.httpStatusCode === 200;    
-    };
+        return response.$metadata.httpStatusCode === 200;
+    }
+
+    public async markCriticalFailure( userId: string, assetId: string, value: boolean): Promise<boolean> {
+        const command = new UpdateItemCommand({
+            TableName: this.table,
+            Key: {
+                userId: { S: userId },
+                assetId: { S: assetId }
+            },
+            UpdateExpression: 'SET progress.hasCriticalFailure = :value, progress.updatedAt = :time',
+            ExpressionAttributeValues: {
+                ':value': { BOOL: value },
+                ':time': { S: new Date().toISOString() }
+            }
+        });
+        const response = await this.dbclient.send(command);
+        return response.$metadata.httpStatusCode === 200;
+    }
 
     private readonly UPDATE_PATHS: Record<MetadataPath, string[]> = {
         [MetadataPath.VALIDATION_BASIC]: ['metadata', 'validation', 'basic'],
@@ -172,64 +187,3 @@ export class MetadataCache {
         return result;
     }
 }
-
-// // relationship between user and asset
-// // asset and encodings
-// // asset and gops
-
-// // overall status tracking
-// // gop task 
-
-// interface AssetRecord {
-//     PK: string;
-//     SK: string;
-
-//     assetId: string;
-//     userId: string;
-//     originalKey: string;
-//     status: 'PROCESSING' | 'READY' | 'FAILED';
-//     createdAt: string;
-//     updatedAt: string;
-
-//     validation: {
-//         basic: BasicValidationResult;
-//         stream: StreamValidationResult;
-//     };
-//     metadata: {
-//         technical: TechnicalMetadata;
-//         quality: QualityMetrics;
-//         content: ContentMetadata;
-//     };
-
-//     gops: {
-//         total: number;
-//         segments: {
-//             sequence: number;
-//             path: string;
-//             duration: number;
-//             status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
-//         }[];
-//     };
-
-//     transcoding: {
-//         status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED';
-//         qualities: {
-//             [quality: string]: {
-//                 status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
-//                 segments: {
-//                     gopIndex: number;
-//                     path: string;
-//                     status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
-//                 }[];
-//             };
-//         };
-//     };
-
-//     delivery: {
-//         masterPlaylist: string;
-//         qualityPlaylists: {
-//             [quality: string]: string;
-//         };
-//         baseUrl: string;
-//     };
-// }

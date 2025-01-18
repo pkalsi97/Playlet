@@ -7,6 +7,7 @@ import { promisify } from 'util';
 import {
     BasicValidationResult,
     StreamValidationResult,
+    ContentValidationResult,
 } from '../../types/metadata.types'
 
 if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
@@ -24,6 +25,48 @@ export class ContentValidationService {
         this.ffprobe =  promisify(ffmpeg.ffprobe);
     }
 
+    public async  validateContent(filePath:string): Promise <ContentValidationResult> {
+
+        const basic = await this.validateBasics(filePath);
+        if (!basic.isValid) {
+            return {
+                success: false,
+                error: "Invalid format or codecs",
+                basic,
+                stream: {
+                    hasVideoStream: false,
+                    hasAudioStream: false,
+                    isPlayable: false,
+                    hasCorruptFrames: false
+                }
+            };
+        };
+
+        const stream: StreamValidationResult = await this.validateStreams(filePath);
+
+        const success = basic.isValid && 
+                   stream.isPlayable && 
+                   !stream.hasCorruptFrames &&
+                   stream.hasVideoStream &&
+                   stream.hasAudioStream;
+
+        let error: string | undefined;
+        if (!success) {
+            if (!stream.hasVideoStream) error = "No video stream found";
+            else if (!stream.hasAudioStream) error = "No audio stream found";
+            else if (stream.hasCorruptFrames) error = "Corrupt frames detected";
+            else if (!stream.isPlayable) error = stream.error || "Content not playable";
+            else error = "Validation failed";
+        }
+
+        return{
+            success,
+            error,
+            basic,
+            stream
+        }
+    };
+
     private getDefaultResult(exists: boolean, stats?: fs.Stats): BasicValidationResult {
         return {
             exists,
@@ -36,7 +79,7 @@ export class ContentValidationService {
         };
     }
 
-    public async validateBasics(filePath: string): Promise<BasicValidationResult> {
+    private async validateBasics(filePath: string): Promise<BasicValidationResult> {
         const stats = await fs.promises.stat(filePath).catch(() => null);
         if (!stats) return this.getDefaultResult(false);
 
@@ -72,7 +115,7 @@ export class ContentValidationService {
                this.supportedAudioCodecs.includes(audioCodec);
     }
     
-    public async validateStreams(filePath: string): Promise<StreamValidationResult> {
+    private async validateStreams(filePath: string): Promise<StreamValidationResult> {
         const metadata = await this.ffprobe(filePath).catch(() => null);
         if (!metadata) {
             return {

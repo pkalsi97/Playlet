@@ -3,9 +3,15 @@ import path from 'path';
 
 import { 
     SQSEvent,
-    S3Event,
+    S3BatchEvent,
+    SQSBatchItemFailure,
+    SQSBatchResponse,
 } from 'aws-lambda';
 
+import {
+    KeyOwner,
+    getOwner
+} from '../utils/key-service'
 
 import {
     ErrorName,
@@ -36,6 +42,7 @@ import {
 import { 
     SQSClient,
     SendMessageCommand,
+    DeleteMessageCommand,
  } from '@aws-sdk/client-sqs';
 
 
@@ -49,10 +56,6 @@ interface PreprocessingResults{
     Records:PreprocessingResult[];
 }
 
-interface KeyOwner {
-    userId: string;
-    assetId: string;
-}
 
 if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
     ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH || '/opt/ffmpeg/ffmpeg');
@@ -80,151 +83,135 @@ const initSourceContentFunc = async(key:string):Promise<string> => {
     return filePath;
 };
 
-const getOwner = (key: string): KeyOwner => {
-    // userId/yyyy/mm/hash
-    const parts = key.split('/');
-    if (parts.length !== 4) {
-        throw new CustomError(
-            ErrorName.PREPROCESSING_ERROR, 
-            "Invalid Key Format",
-            400,
-            Fault.CLIENT, 
-            false
-        );
-    }
 
-    const userId = parts[0];
-    const assetId = parts[3];
-
-    return { userId, assetId };
-};
-
-
-export const preprocessingHandler = async(messages: SQSEvent): Promise<any> => {
-
-    const preprocessingResults:PreprocessingResults = {
-        Records:[],
-    }
+export const preprocessingHandler = async(messages: SQSEvent): Promise<SQSBatchResponse> => {
+    const batchItemFailures: SQSBatchItemFailure[] = [];
 
     try{
-        for (const message of messages.Records){
-            const s3Events:S3Event = JSON.parse(message.body);
 
-            for (const event of s3Events.Records){
-                // Get the source object and store it in tmp
-                const key: string = event.s3.object.key;
-                const bucket: string = event.s3.bucket.name;
-                const filePath: string = await initSourceContentFunc(key);
+        // for(const message of messages.Records){
+        //     const s3Events:
 
-                const owner:KeyOwner = getOwner(key);
-                const userId = owner.userId;
-                const assetId = owner.assetId;
 
-                // Run FFprobe Validations on source
-                const [basicValidation, streamValidation] = await Promise.all([
-                    contentValidationService.validateBasics(filePath),
-                    contentValidationService.validateStreams(filePath)
-                ]);
 
-                if (!basicValidation.isValid || !streamValidation.isPlayable || streamValidation.error){
-                    throw new CustomError (
-                        ErrorName.VALIDATION_ERROR,
-                        "Provided Content is not Valid",
-                        400,
-                        Fault.CLIENT,
-                        true
-                    );
-                }
-                            
-    
-                await metadataCache.InitializeRecord(userId,assetId);
-                await metadataCache.updateProgress(userId, assetId, ProcessingStage.UPLOAD);
-                await metadataCache.updateProgress(userId, assetId, ProcessingStage.VALIDATION);
+        // }
 
-                // extract useful metadata from the source
-                const [technicalMetadata,qualityMetrics,contentMetadata] = await Promise.all([
-                    metadataExtractor.extractTechnicalMetadata(filePath),
-                    metadataExtractor.extractQualityMetrics(filePath),
-                    metadataExtractor.extractContentMetadata(filePath)
-                ]);
 
-                await metadataCache.updateProgress(userId, assetId, ProcessingStage.METADATA);
 
-                const sourceMetadata:SourceMetadata ={
-                    validation:{
-                        basic:basicValidation,
-                        stream:streamValidation
-                    },
-                    metadata:{
-                        technical:technicalMetadata,
-                        quality:qualityMetrics,
-                        content:contentMetadata,
-                    }
-                };
- 
-                const preprocessingResult:PreprocessingResult = {
-                    userId:owner.userId,
-                    assetId:owner.assetId,
-                    metadata:sourceMetadata,
-                }
-                preprocessingResults.Records.push(preprocessingResult);
-                // update in metadata cache
-                await metadataCache.updateMetadata(userId,assetId,MetadataPath.VALIDATION_BASIC,basicValidation);
-                await metadataCache.updateMetadata(userId,assetId,MetadataPath.VALIDATION_STREAM,streamValidation);
-                await metadataCache.updateMetadata(userId,assetId,MetadataPath.METADATA_TECHNICAL,technicalMetadata);
-                await metadataCache.updateMetadata(userId,assetId,MetadataPath.METADATA_QUALITY,qualityMetrics);
-                await metadataCache.updateMetadata(userId,assetId,MetadataPath.METADATA_CONTENT,contentMetadata);
-                // clean up
-                await transportObjectService.cleanUpFromTemp(filePath);
-
-                // Task Creation
-                const input: Location = {
-                    Bucket: bucket,
-                    Key: key,
-                }
-
-                const output: Location = {
-                    Bucket: process.env.CONTENTSTORAGE_BUCKET_NAME!,
-                    Key: `${userId}/${assetId}/gops`
-                }
-
-  
-                const task = TaskCreator.createTask(userId,assetId,input,output,TaskType.GOP_CREATION,WorkerType.GOP_WORKER,sourceMetadata);
-
-                const sendMessageCommand = new SendMessageCommand({
-                    QueueUrl: process.env.MEDIASEGMENTERQUEUE_QUEUE_URL!,
-                    MessageBody: JSON.stringify({
-                        task
-                    })        
-                });
-
-                const response = await sqs.send(sendMessageCommand);
-                if(!response || response.$metadata.httpStatusCode !== 200){
-                    throw new CustomError(
-                        ErrorName.INTERNAL_ERROR,
-                        "Unable to send message to queue",
-                        503,
-                        Fault.SERVER,
-                        true
-                    );
-                }
-            }
-        }
-
-        return{
-            statusCode:200,
-            message: "Validation Successful",
-        }
-    } catch(error){
-        const errorResponse = exceptionHandlerFunction(error);
-        if (error instanceof CustomError && error.name === ErrorName.VALIDATION_ERROR  && error.fault === Fault.CLIENT) {   
-            return {
-                statusCode: 200,
-                message: "Failed but processed",    
-                error: errorResponse
-            };
-        }
-    }
+        return {batchItemFailures: batchItemFailures};
+    } catch (error) {
+        exceptionHandlerFunction(error);
+        return {batchItemFailures: batchItemFailures};
+    }    
 };
 
 
+
+// check in dynamodb if record is there this is just to safely ensure we can abort the process 
+// 
+
+
+
+// DLQ to finally mark jobs as failed
+
+// try{
+    // for (const message of messages.Records){
+    //     const s3Events:S3Event = JSON.parse(message.body);
+
+    //     for (const event of s3Events.Records){
+//             // Get the source object and store it in tmp
+//             const key: string = event.s3.object.key;
+//             const bucket: string = event.s3.bucket.name;
+//             const filePath: string = await initSourceContentFunc(key);
+
+//             const owner:KeyOwner = getOwner(key);
+//             const userId = owner.userId;
+//             const assetId = owner.assetId;
+//             // Initialize in metadata storage
+//             await metadataCache.InitializeRecord(userId,assetId);
+//             await metadataCache.updateProgress(userId, assetId, ProcessingStage.UPLOAD,true);
+
+//             // Run FFprobe Validations on source
+//             const contentValidationResult = await contentValidationService.validateContent(filePath);
+
+//             if (!contentValidationResult.success){
+//                 await metadataCache.markCriticalFailure(userId,assetId,true);
+
+//                 throw new CustomError (
+//                     ErrorName.VALIDATION_ERROR,
+//                     contentValidationResult.error,
+//                     400,
+//                     Fault.CLIENT,
+//                     true
+//                 );
+//             }
+                        
+        
+//             await metadataCache.updateProgress(userId, assetId, ProcessingStage.VALIDATION,true);
+
+//             // extract useful metadata from the source
+//             const contentMetadataResult = await metadataExtractor.getContentMetadata(filePath);
+//             await metadataCache.updateProgress(userId, assetId, ProcessingStage.METADATA,true);
+
+//             const sourceMetadata:SourceMetadata ={
+//                 validation:{
+//                     basic:contentValidationResult.basic,
+//                     stream:contentValidationResult.stream
+//                 },
+//                 metadata:{
+//                     technical:contentMetadataResult.technical,
+//                     quality:contentMetadataResult.quality,
+//                     content:contentMetadataResult.content,
+//                 }
+//             };
+
+//             // update in metadata cache
+//             await metadataCache.updateMetadata(userId,assetId,MetadataPath.VALIDATION_BASIC,contentValidationResult.basic);
+//             await metadataCache.updateMetadata(userId,assetId,MetadataPath.VALIDATION_STREAM,contentValidationResult.stream);
+//             await metadataCache.updateMetadata(userId,assetId,MetadataPath.METADATA_TECHNICAL,contentMetadataResult.technical);
+//             await metadataCache.updateMetadata(userId,assetId,MetadataPath.METADATA_QUALITY,contentMetadataResult.quality);
+//             await metadataCache.updateMetadata(userId,assetId,MetadataPath.METADATA_CONTENT,contentMetadataResult.content);
+
+//             // Task Creation
+//             const input: Location = {
+//                 Bucket: bucket,
+//                 Key: key,
+//             }
+
+//             const output: Location = {
+//                 Bucket: process.env.CONTENTSTORAGE_BUCKET_NAME!,
+//                 Key: `${userId}/${assetId}/gops`
+//             }
+
+
+//             const task = TaskCreator.createTask(userId,assetId,input,output,TaskType.GOP_CREATION,WorkerType.GOP_WORKER,sourceMetadata);
+
+//             const sendMessageCommand = new SendMessageCommand({
+//                 QueueUrl: process.env.MEDIASEGMENTERQUEUE_QUEUE_URL!,
+//                 MessageBody: JSON.stringify({
+//                     task
+//                 })        
+//             });
+
+//             const response = await sqs.send(sendMessageCommand);
+//             if(!response || response.$metadata.httpStatusCode !== 200){
+//                 throw new CustomError(
+//                     ErrorName.INTERNAL_ERROR,
+//                     "Unable to send message to queue",
+//                     503,
+//                     Fault.SERVER,
+//                     true
+//                 );
+//             }
+//             // clean up
+//             await transportObjectService.cleanUpFromTemp(filePath);
+//         }
+//     }
+
+//     return{
+//         statusCode:200,
+//         message: "Validation Successful",
+//     }
+// } catch(error){
+//     const errorResponse = exceptionHandlerFunction(error);
+// }
