@@ -1,9 +1,9 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import crypto from 'crypto';
+import * as fs from 'fs'
+import * as path from 'path'
+import crypto from 'crypto'
 
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { Upload } from '@aws-sdk/lib-storage'
 
 import {
@@ -33,7 +33,7 @@ export class ObjectService{
         });
     
         return (await this.s3Client.send(command)).Body;
-    };
+    }
 
     public async uploadObject(object:fs.ReadStream,key:string):Promise<boolean> {
 
@@ -48,7 +48,7 @@ export class ObjectService{
 
         const result = await upload.done();
         return result.$metadata.httpStatusCode === 200;
-    };
+    }
 
     public async deleteObject(key:string):Promise<boolean> { 
         
@@ -60,7 +60,7 @@ export class ObjectService{
         const response = await this.s3Client.send(command);
 
         return response.$metadata.httpStatusCode === 204;
-    };
+    }
 
     public async writeToTemp(object:GetObjectCommandOutput["Body"]):Promise<string> {
         const fileName: string = crypto.randomUUID();
@@ -78,7 +78,7 @@ export class ObjectService{
         await fs.promises.access(path, fs.constants.R_OK);
         const readStream = fs.createReadStream(path);
         return readStream;
-    };
+    }
 
     public async cleanUpFromTemp(path:string):Promise<boolean> {
         try {
@@ -92,6 +92,6 @@ export class ObjectService{
             return false;
         }
 
-    };
+    }
 }
  

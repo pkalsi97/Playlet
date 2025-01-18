@@ -1,0 +1,376 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Worker Compute Resources for MediaRelay
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+  AppId:
+    Type: String
+    Description: Application ID
+  Environment:
+    Type: String
+    Default: Production
+    AllowedValues:
+      - Development
+      - Staging
+      - Production
+  TransportStorage:
+    Type: String
+    Description: Transport Storage Bucket Name
+  ContentStorage:
+    Type: String
+    Description: Content Storage Bucket Name
+  MetadataStorageArn:
+    Type: String
+    Description: DynamoDB Table ARN
+  VpcId:
+    Type: String
+    Description: VPC ID
+  SubnetId:
+    Type: String
+    Description: Subnet ID
+  SecurityGroupId:
+    Type: String
+    Description: Security Group ID
+
+Resources:
+  WorkerClusterLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/ecs/${AWS::StackName}-worker-cluster
+      RetentionInDays: 7
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref AppId
+
+  WorkerCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${AWS::StackName}-worker-cluster
+      CapacityProviders:
+        - FARGATE
+        - FARGATE_SPOT
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: FARGATE_SPOT
+          Weight: 1
+      Configuration:
+        ExecuteCommandConfiguration:
+          Logging: DEFAULT
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref AppId
+
+  WorkerRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub ${AWS::StackName}-worker
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      ImageTagMutability: IMMUTABLE
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep only last 2 images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 2
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref AppId
+
+  WorkerRepositoryPolicy:
+    Type: AWS::ECR::RepositoryPolicy
+    Properties:
+      RepositoryName: !Ref WorkerRepository
+      PolicyText:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowPullPush
+            Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action:
+              - ecr:GetDownloadUrlForLayer
+              - ecr:BatchGetImage
+              - ecr:BatchCheckLayerAvailability
+              - ecr:PutImage
+              - ecr:InitiateLayerUpload
+              - ecr:UploadLayerPart
+              - ecr:CompleteLayerUpload
+
+  ProcessorTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${AWS::StackName}-processor
+      RequiresCompatibilities:
+        - FARGATE
+      NetworkMode: awsvpc
+      Cpu: '4096'
+      Memory: '8192'
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt ProcessorTaskRole.Arn
+      ContainerDefinitions:
+        - Name: processor
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${WorkerRepository}:latest
+          Essential: true
+          Memory: 8192
+          MemoryReservation: 7168
+          Cpu: 4096
+          Environment:
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            - Name: ENVIRONMENT
+              Value: !Ref Environment
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - exit 0
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref WorkerClusterLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: processor
+              awslogs-create-group: true
+              mode: non-blocking
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref AppId
+
+  HelperTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${AWS::StackName}-helper
+      RequiresCompatibilities:
+        - FARGATE
+      NetworkMode: awsvpc
+      Cpu: '2048'
+      Memory: '4096'
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt HelperTaskRole.Arn
+      ContainerDefinitions:
+        - Name: helper
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${WorkerRepository}:latest
+          Essential: true
+          Memory: 4096
+          MemoryReservation: 3072
+          Cpu: 2048
+          Environment:
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            - Name: ENVIRONMENT
+              Value: !Ref Environment
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - exit 0
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref WorkerClusterLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: helper
+              awslogs-create-group: true
+              mode: non-blocking
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref AppId
+
+  ProcessorTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+      - PolicyName: ProcessorAccess
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource:
+                - !Sub arn:${AWS::Partition}:s3:::${TransportStorage}/*
+                - !Sub arn:${AWS::Partition}:s3:::${ContentStorage}/*
+            - Effect: Allow
+              Action:
+                - dynamodb:UpdateItem
+              Resource: !Ref MetadataStorageArn
+            - Effect: Allow
+              Action:
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: !GetAtt WorkerClusterLogGroup.Arn
+            - Effect: Allow
+              Action:
+                - ecs:ListTasks
+                - ecs:DescribeTasks
+                - ecs:ListContainerInstances 
+              Resource: !GetAtt WorkerCluster.Arn
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref AppId
+
+  HelperTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: HelperAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${TransportStorage}/*
+                  - !Sub arn:${AWS::Partition}:s3:::${ContentStorage}/*
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt WorkerClusterLogGroup.Arn
+              - Effect: Allow
+                Action:
+                  - ecs:ListTasks
+                  - ecs:DescribeTasks
+                  - ecs:ListContainerInstances 
+                Resource: !GetAtt WorkerCluster.Arn
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref AppId
+
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: ECRAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents   
+                Resource: '*'
+        - PolicyName: ECSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecs:RunTask
+                  - ecs:StopTask
+                  - ecs:DescribeTasks
+                Resource: '*'
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref AppId
+
+Outputs:
+  WorkerClusterArn:
+    Description: Worker Cluster ARN
+    Value: !GetAtt WorkerCluster.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-WorkerClusterArn
+  WorkerRepositoryUri:
+    Description: Worker Repository URI
+    Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${WorkerRepository}
+    Export:
+      Name: !Sub ${AWS::StackName}-WorkerRepositoryUri
+  ProcessorTaskDefinitionArn:
+    Description: Processor Task Definition ARN
+    Value: !Ref ProcessorTaskDefinition
+    Export:
+      Name: !Sub ${AWS::StackName}-ProcessorTaskDefinitionArn
+  HelperTaskDefinitionArn:
+    Description: Helper Task Definition ARN
+    Value: !Ref HelperTaskDefinition
+    Export:
+      Name: !Sub ${AWS::StackName}-HelperTaskDefinitionArn
+  WorkerClusterLogGroupName:
+    Description: Worker Cluster Log Group Name
+    Value: !Ref WorkerClusterLogGroup
+    Export:
+      Name: !Sub ${AWS::StackName}-WorkerClusterLogGroupName
+  WorkerClusterName:
+    Description: Worker Cluster Name
+    Value: !Ref WorkerCluster
+    Export:
+      Name: !Sub ${AWS::StackName}-WorkerClusterName
+  ProcessorTaskRoleArn:
+    Description: Processor Task Role ARN
+    Value: !GetAtt ProcessorTaskRole.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-ProcessorTaskRoleArn
+  HelperTaskRoleArn:
+    Description: Helper Task Role ARN
+    Value: !GetAtt HelperTaskRole.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-HelperTaskRoleArn
+  TaskExecutionRoleArn:
+    Description: Task Execution Role ARN
+    Value: !GetAtt TaskExecutionRole.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-TaskExecutionRoleArn

@@ -1,7 +1,7 @@
 node_modules
-# FFmpeg binaries
-src/layers/resource-layer/opt/ffmpeg/*
-!src/layers/resource-layer/opt/ffmpeg/.gitkeep
-notes
 
-/src/workers
+/src/tests/manual/*
+/src/local/*
+test-results/*
+*.test.local.ts
+.env

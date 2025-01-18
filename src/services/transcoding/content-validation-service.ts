@@ -10,11 +10,6 @@ import {
     ContentValidationResult,
 } from '../../types/metadata.types'
 
-if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
-    ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH || '/opt/ffmpeg/ffmpeg');
-    ffmpeg.setFfprobePath(process.env.FFPROBE_PATH || '/opt/ffprobe/ffprobe');
-}
-
 export class ContentValidationService {
     private readonly supportedFormats = ['mp4', 'mov', 'avi', 'mkv'];
     private readonly supportedVideoCodecs = ['h264', 'hevc', 'vp8', 'vp9'];
@@ -65,7 +60,7 @@ export class ContentValidationService {
             basic,
             stream
         }
-    };
+    }
 
     private getDefaultResult(exists: boolean, stats?: fs.Stats): BasicValidationResult {
         return {

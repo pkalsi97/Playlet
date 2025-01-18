@@ -1,7 +1,7 @@
 export enum Fault {
     CLIENT = 'Client',
     SERVER = 'Server',
-};
+}
 
 export enum ErrorName {
     AWS_ERROR = 'AWSError',
@@ -104,4 +104,4 @@ export class CustomError extends Error {
         this.retryable = retryable;
         Object.setPrototypeOf(this, new.target.prototype);
     };
-};
+}

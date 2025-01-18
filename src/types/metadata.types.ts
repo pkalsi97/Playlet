@@ -60,7 +60,7 @@ export interface StreamValidationResult {
     isPlayable: boolean;
     hasCorruptFrames: boolean;
     error?: string;
-};
+}
 
 export interface ContentValidationResult{
     success: boolean;

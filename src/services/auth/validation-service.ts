@@ -1,4 +1,3 @@
-// src/utils/validators/types.ts
 import { IRequest } from '../../types/request-response.types'
 
 export enum ValidationField {
@@ -75,7 +74,7 @@ const ValidationRules: Record<ValidationField, ValidationRule> = {
         },
         message: 'Invalid access token format'
     }
-};
+}
 
 export class ValidationService {
 
@@ -110,7 +109,7 @@ export class ValidationService {
         [ValidationField.REFRESH_TOKEN]: 'body.refreshToken',
         [ValidationField.REQUEST_HEADERS]: 'headers',
         [ValidationField.OTP]:'body.answer'
-    };
+    }
     
     private static getValueFromRequest(request: IRequest, field: ValidationField): any {
         if (!request) return undefined;
@@ -120,20 +119,3 @@ export class ValidationService {
         }, request);
     }
 }
-
-// Usage example:
-/*
-const signupFunc = async (request: IRequest): Promise<IResponse> => {
-    const validationResult = ValidationService.validate(request, [
-        ValidationField.REQUEST_BODY,
-        ValidationField.EMAIL,
-        ValidationField.PASSWORD
-    ]);
-
-    if (!validationResult.success) {
-        throw new ValidationError(validationResult.message!, Fault.CLIENT, true);
-    }
-
-    // Proceed with signup logic...
-};
-*/

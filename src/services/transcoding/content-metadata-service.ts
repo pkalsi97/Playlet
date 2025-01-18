@@ -1,7 +1,7 @@
-import * as fs from 'fs';
-import ffmpeg from 'fluent-ffmpeg';
-import { FfprobeData, FfprobeStream } from 'fluent-ffmpeg';
-import { promisify } from 'util';
+import * as fs from 'fs'
+import ffmpeg from 'fluent-ffmpeg'
+import { FfprobeData, FfprobeStream } from 'fluent-ffmpeg'
+import { promisify } from 'util'
 
 import {
     TechnicalMetadata,
@@ -9,11 +9,6 @@ import {
     ContentMetadata,
     ContentMetadataResult
 } from '../../types/metadata.types'
-
-if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
-    ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH || '/opt/ffmpeg/ffmpeg');
-    ffmpeg.setFfprobePath(process.env.FFPROBE_PATH || '/opt/ffprobe/ffprobe');
-}
 
 export class MetadataExtractor {
     private readonly ffprobe: (filePath: string) => Promise<FfprobeData>;

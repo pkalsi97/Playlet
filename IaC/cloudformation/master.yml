@@ -1,9 +1,18 @@
-# Do Not Touch This unless you know what you are doing! Unverified aActions can lead to Deployment Failure or Deletion of Resources 
+#########################################################################################
+# CRITICAL INFRASTRUCTURE CONFIGURATION                                                   #
+# This template defines core infrastructure components.                                   #
+# Modifications may result in:                                                            #
+#   - Service disruptions                                                                 #
+#   - Data loss                                                                           #
+#   - Resource deletion                                                                   #
+# Ensure proper change management procedures are followed before making any modifications.#
+######################################################################################### 
 AWSTemplateFormatVersion: 2010-09-09
 Description: A Serverless & Loosely Coupled Video Transcoding & Delivery Project
 Transform: AWS::Serverless-2016-10-31
 
 Globals:
+  #FUNCTIONS
   Function:
     PermissionsBoundary: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${AppId}-${AWS::Region}-PermissionsBoundary
     Environment:
@@ -20,7 +29,8 @@ Globals:
       SystemLogLevel: WARN
     Tags:
       Application: !Sub ${AppId}
-      Environment: Production
+      Environment: !Ref Environment
+  #APIs
   Api:
     EndpointConfiguration: REGIONAL
     TracingEnabled: true
@@ -43,7 +53,6 @@ Globals:
             Audience:
               - !Ref UserPoolClient
             Issuer: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}
-
 Parameters:
   AppId:
     Type: String
@@ -57,7 +66,14 @@ Parameters:
   TransportExpiryDays:
     Type: Number
     Description: File Expiry Days for Transport
-
+  Environment:
+    Type: String
+    Description: Deployment Environment
+    Default: Production
+    AllowedValues:
+      - Development
+      - Staging
+      - Production
 Resources:
   # -----------------------------------------------------------------------------------------------------------------------
   # LOGGING & MONITORING
@@ -69,13 +85,11 @@ Resources:
     Properties:
       LogGroupName: !Sub /aws/lambda/${AppId}-Backend-Func-Logs
       RetentionInDays: 7
-  # Common logging for all workers
-  WorkerClusterLogGroup:
-    Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    Properties:
-      LogGroupName: !Sub /aws/ecs/${AWS::StackName}-worker-cluster
-      RetentionInDays: 7
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref AppId
   # -----------------------------------------------------------------------------------------------------------------------
   # AUTHENTICATION & AUTHORIZATION
   # -----------------------------------------------------------------------------------------------------------------------
@@ -125,13 +139,15 @@ Resources:
         - ALLOW_REFRESH_TOKEN_AUTH
       PreventUserExistenceErrors: ENABLED
   # -----------------------------------------------------------------------------------------------------------------------
-  # LAMBDA & LAYERS
+  # LAMBDA
   # -----------------------------------------------------------------------------------------------------------------------
   # Auth Handler Lambda Function
   AuthHandler:
     Type: AWS::Serverless::Function
     Properties:
-      Description: Authentication & Authorization
+      Description: !Sub
+        - Stack ${AWS::StackName} Function ${ResourceName}
+        - ResourceName: AuthHandler
       CodeUri: ./dist
       Handler: handlers/auth-handler.authHandler
       Runtime: nodejs18.x
@@ -188,7 +204,9 @@ Resources:
   UploadHandler:
     Type: AWS::Serverless::Function
     Properties:
-      Description: Upload Management
+      Description: !Sub
+        - Stack ${AWS::StackName} Function ${ResourceName}
+        - ResourceName: UploadHandler
       CodeUri: ./dist
       Handler: handlers/upload-handler.uploadHandler
       Runtime: nodejs18.x
@@ -237,80 +255,100 @@ Resources:
         Variables:
           TRANSPORTSTORAGE_BUCKET_NAME: !Ref TransportStorage
           TRANSPORTSTORAGE_BUCKET_ARN: !GetAtt TransportStorage.Arn
-  # Process Handler function
-  PreprocessingHandler:
+    #Completion Handler
+  IngestHandler:
     Type: AWS::Serverless::Function
     Properties:
       Description: !Sub
         - Stack ${AWS::StackName} Function ${ResourceName}
-        - ResourceName: PreprocessingHandler
+        - ResourceName: IngestHandler
       CodeUri: ./dist
-      Handler: handlers/preprocessing-handler.preprocessingHandler
-      Runtime: nodejs18.x
-      MemorySize: 1024
-      Timeout: 120
-      Tracing: Active
-      Architectures:
-        - arm64
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - AWSXrayWriteOnlyAccess
-        - DynamoDBCrudPolicy:
-            TableName: !Ref MetadataStorage
-        - Statement:
-            - Effect: Allow
-              Action:
-                - ecs:RunTask
-                - ecs:DescribeTasks
-                - ecs:StopTask
-              Resource:
-                - !Ref TranscodeTaskDefinition
-                - !Sub arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task/*
-        - SQSSendMessagePolicy:
-            QueueName: !GetAtt PendingTaskQueue.QueueName
-      Environment:
-        Variables:
-          # Storage related
-          METADATASTORAGE_TABLE_NAME: !Ref MetadataStorage
-          METADATASTORAGE_TABLE_ARN: !GetAtt MetadataStorage.Arn
-          # ECS Task specific variables
-          CLUSTER_ARN: !GetAtt WorkerCluster.Arn
-          TRANSCODE_TASK_DEFINITION: !Ref TranscodeTaskDefinition
-          SUBNET_ID: !Ref PublicSubnet
-          SECURITY_GROUP_ID: !Ref WorkerSecurityGroup
-          TASK_EXECUTION_ROLE_ARN: !GetAtt TaskExecutionRole.Arn
-          PENDINGTASKQUEUE_QUEUE_NAME: !GetAtt PendingTaskQueue.QueueName
-          PENDINGTASKQUEUE_QUEUE_ARN: !GetAtt PendingTaskQueue.Arn
-          PENDINGTASKQUEUE_QUEUE_URL: !Ref PendingTaskQueue
-      Events:
-        PreprocessingQueue:
-          Type: SQS
-          Properties:
-            Queue: !GetAtt PreprocessingQueue.Arn
-            BatchSize: 1
-  PendingTaskHandler:
-    Type: AWS::Serverless::Function
-    Properties:
-      Description: !Sub
-        - Stack ${AWS::StackName} Function ${ResourceName}
-        - ResourceName: PendingTaskHandler
-      CodeUri: ./dist
-      Handler: /handlers/pending-task-handler.pendingTaskHandler
+      Handler: /handlers/ingest-handler.ingestHandler
       Runtime: nodejs18.x
       MemorySize: 3008
       Timeout: 240
       Tracing: Active
-      Events:
-        PendingTaskQueue:
-          Type: SQS
-          Properties:
-            Queue: !GetAtt PendingTaskQueue.Arn
-            BatchSize: 1
       Architectures:
         - arm64
+      Events:
+        IngestQueue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt IngestQueue.Arn
+            BatchSize: 1
+      Environment:
+        Variables:
+          METADATASTORAGE_TABLE_NAME: !Ref MetadataStorage
+          METADATASTORAGE_TABLE_ARN: !GetAtt MetadataStorage.Arn
+          TASKQUEUE_QUEUE_NAME: !GetAtt TaskQueue.QueueName
+          TASKQUEUE_QUEUE_ARN: !GetAtt TaskQueue.Arn
+          TASKQUEUE_QUEUE_URL: !Ref TaskQueue
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MetadataStorage
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt TaskQueue.QueueName
+  #Completion Handler
+  CompletionHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: !Sub
+        - Stack ${AWS::StackName} Function ${ResourceName}
+        - ResourceName: CompletionHandler
+      CodeUri: ./dist
+      Handler: /handlers/completion-handler.completionHandler
+      Runtime: nodejs18.x
+      MemorySize: 3008
+      Timeout: 240
+      Tracing: Active
+      Architectures:
+        - arm64
+      Events:
+        CompletionQueue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt CompletionQueue.Arn
+            BatchSize: 1
+            MaximumBatchingWindowInSeconds: 10
+      Environment:
+        Variables:
+          METADATASTORAGE_TABLE_NAME: !Ref MetadataStorage
+          METADATASTORAGE_TABLE_ARN: !GetAtt MetadataStorage.Arn
       Policies:
         - AWSLambdaBasicExecutionRole
         - AWSXrayWriteOnlyAccess
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MetadataStorage
+  TaskHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: !Sub
+        - Stack ${AWS::StackName} Function ${ResourceName}
+        - ResourceName: TaskHandler
+      CodeUri: ./dist
+      Handler: /handlers/task-handler.taskHandler
+      Runtime: nodejs18.x
+      MemorySize: 3008
+      Timeout: 240
+      Tracing: Active
+      Architectures:
+        - arm64
+      Events:
+        TaskQueue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt TaskQueue.Arn
+            BatchSize: 1
+      Environment:
+        Variables:
+          METADATASTORAGE_TABLE_NAME: !Ref MetadataStorage
+          METADATASTORAGE_TABLE_ARN: !GetAtt MetadataStorage.Arn
+          WORKER_CLUSTER_ARN: !GetAtt WorkerStack.Outputs.WorkerClusterArn
+          PROCESSOR_TASK_DEFINITION: !GetAtt WorkerStack.Outputs.ProcessorTaskDefinitionArn
+          HELPER_TASK_DEFINITION: !GetAtt WorkerStack.Outputs.HelperTaskDefinitionArn
+          SUBNET_ID: !GetAtt NetworkStack.Outputs.SubnetId
+          SECURITY_GROUP_ID: !GetAtt NetworkStack.Outputs.SecurityGroupId
+      Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref MetadataStorage
         - Statement:
@@ -320,22 +358,36 @@ Resources:
                 - ecs:DescribeTasks
                 - ecs:StopTask
               Resource:
-                - !Ref TranscodeTaskDefinition
+                - !GetAtt WorkerStack.Outputs.ProcessorTaskDefinitionArn
+                - !GetAtt WorkerStack.Outputs.HelperTaskDefinitionArn
                 - !Sub arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task/*
+  DLQHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: !Sub
+        - Stack ${AWS::StackName} Function ${ResourceName}
+        - ResourceName: DLQHandler
+      CodeUri: ./dist
+      Handler: /handlers/dlq-handler.dlqHandler
+      Runtime: nodejs18.x
+      MemorySize: 3008
+      Timeout: 240
+      Tracing: Active
+      Architectures:
+        - arm64
+      Events:
+        CommonDLQ:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt CommonDLQ.Arn
+            BatchSize: 1
       Environment:
         Variables:
-          # Storage related
           METADATASTORAGE_TABLE_NAME: !Ref MetadataStorage
           METADATASTORAGE_TABLE_ARN: !GetAtt MetadataStorage.Arn
-          # ECS Task specific variables
-          CLUSTER_ARN: !GetAtt WorkerCluster.Arn
-          TRANSCODE_TASK_DEFINITION: !Ref TranscodeTaskDefinition
-          SUBNET_ID: !Ref PublicSubnet
-          SECURITY_GROUP_ID: !Ref WorkerSecurityGroup
-          TASK_EXECUTION_ROLE_ARN: !GetAtt TaskExecutionRole.Arn
-          PENDINGTASKQUEUE_QUEUE_NAME: !GetAtt PendingTaskQueue.QueueName
-          PENDINGTASKQUEUE_QUEUE_ARN: !GetAtt PendingTaskQueue.Arn
-          PENDINGTASKQUEUE_QUEUE_URL: !Ref PendingTaskQueue
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MetadataStorage
 
   # -----------------------------------------------------------------------------------------------------------------------
   # API GATEWAY
@@ -440,10 +492,12 @@ Resources:
             ExpirationInDays: !Ref TransportExpiryDays
       NotificationConfiguration:
         QueueConfigurations:
-          - Event: s3:ObjectCreated:Post
-            Queue: !GetAtt PreprocessingQueue.Arn
+          - Event: s3:ObjectCreated:*
+            Queue: !GetAtt IngestQueue.Arn
+          - Event: s3:ObjectRemoved:*
+            Queue: !GetAtt IngestQueue.Arn
     DependsOn:
-      - TransportStorageToPreprocessingQueuePermission
+      - TransportStorageToIngestQueuePermission
   TransportStorageBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -517,21 +571,31 @@ Resources:
           KeyType: RANGE
       StreamSpecification:
         StreamViewType: NEW_AND_OLD_IMAGES
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref AppId
   # -----------------------------------------------------------------------------------------------------------------------
-  # QUEUES
+  # SQS QUEUES
   # -----------------------------------------------------------------------------------------------------------------------
-  # Preprocessing Queue
-  PreprocessingQueue:
+  # 1 Ingestion Queue
+  IngestQueue:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: Preprocessing-Queue
+      QueueName: !Sub ${AppId}-IngestQueue
       MessageRetentionPeriod: 345600
       VisibilityTimeout: 120
       DelaySeconds: 30
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref AppId
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt CommonDLQ.Arn
         maxReceiveCount: 5
-  TransportStorageToPreprocessingQueuePermission:
+  TransportStorageToIngestQueuePermission:
     Type: AWS::SQS::QueuePolicy
     Properties:
       PolicyDocument:
@@ -541,28 +605,25 @@ Resources:
             Principal:
               Service: s3.amazonaws.com
             Action: sqs:SendMessage
-            Resource: !GetAtt PreprocessingQueue.Arn
+            Resource: !GetAtt IngestQueue.Arn
             Condition:
               ArnEquals:
                 aws:SourceArn: !Sub arn:${AWS::Partition}:s3:::${AWS::StackName}-transport-${AWS::AccountId}
       Queues:
-        - !Ref PreprocessingQueue
-  # Pending Task Queue
-  PendingTaskQueue:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: PendingTask-Queue
-      MessageRetentionPeriod: 345600
-      VisibilityTimeout: 120
-      DelaySeconds: 30
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt CommonDLQ.Arn
-        maxReceiveCount: 5
-  # Completion Queue
+        - !Ref IngestQueue
+  # 2 Completion Queue
   CompletionQueue:
     Type: AWS::SQS::Queue
     Properties:
+      QueueName: !Sub ${AppId}-CompletionQueue
       MessageRetentionPeriod: 345600
+      VisibilityTimeout: 120
+      DelaySeconds: 30
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref AppId
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt CommonDLQ.Arn
         maxReceiveCount: 5
@@ -582,308 +643,68 @@ Resources:
                 aws:SourceArn: !Sub arn:${AWS::Partition}:s3:::${AWS::StackName}-contentst-${AWS::AccountId}
       Queues:
         - !Ref CompletionQueue
-  # -----------------------------------------------------------------------------------------------------------------------
-  # WORKERS SETUP
-  # -----------------------------------------------------------------------------------------------------------------------
-
-  # -----------------------------------------------------------------------------------------------------------------------
-  # VPC SETUP
-  # -----------------------------------------------------------------------------------------------------------------------
-  # Basic VPC Setup
-  WorkerVPC:
-    Type: AWS::EC2::VPC
+  # 3 TaskQueue
+  TaskQueue:
+    Type: AWS::SQS::Queue
     Properties:
-      CidrBlock: 10.0.0.0/16
-      EnableDnsHostnames: true
-      EnableDnsSupport: true
+      QueueName: !Sub ${AppId}-TaskQueue
+      MessageRetentionPeriod: 345600
+      VisibilityTimeout: 120
+      DelaySeconds: 30
       Tags:
-        - Key: Name
-          Value: !Sub ${AWS::StackName}-vpc
-
-  InternetGateway:
-    Type: AWS::EC2::InternetGateway
-
-  AttachGateway:
-    Type: AWS::EC2::VPCGatewayAttachment
-    Properties:
-      VpcId: !Ref WorkerVPC
-      InternetGatewayId: !Ref InternetGateway
-
-  # Single Public Subnet (cost-effective)
-  PublicSubnet:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref WorkerVPC
-      CidrBlock: 10.0.1.0/24
-      AvailabilityZone: !Select
-        - 0
-        - !GetAZs ''
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: !Sub ${AWS::StackName}-public-subnet
-
-  # Route Table
-  PublicRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref WorkerVPC
-      Tags:
-        - Key: Name
-          Value: !Sub ${AWS::StackName}-public-rt
-
-  PublicRoute:
-    Type: AWS::EC2::Route
-    DependsOn: AttachGateway
-    Properties:
-      RouteTableId: !Ref PublicRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !Ref InternetGateway
-
-  PublicSubnetRouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref PublicSubnet
-      RouteTableId: !Ref PublicRouteTable
-
-  # Security Group
-  WorkerSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Security group for Fargate workers
-      VpcId: !Ref WorkerVPC
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          FromPort: -1
-          ToPort: -1
-          CidrIp: 0.0.0.0/0
-
-  # Essential VPC Endpoints for cost optimization
-  S3Endpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Properties:
-      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
-      VpcId: !Ref WorkerVPC
-      RouteTableIds:
-        - !Ref PublicRouteTable
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal: '*'
-            Action:
-              - s3:GetObject
-              - s3:PutObject
-            Resource:
-              - !Sub arn:aws:s3:::${TransportStorage}/*
-              - !Sub arn:aws:s3:::${ContentStorage}/*
-
-  DynamoDBEndpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Properties:
-      ServiceName: !Sub com.amazonaws.${AWS::Region}.dynamodb
-      VpcId: !Ref WorkerVPC
-      RouteTableIds:
-        - !Ref PublicRouteTable
-
-  # -----------------------------------------------------------------------------------------------------------------------
-  # ECR
-  # -----------------------------------------------------------------------------------------------------------------------
-
-  TranscodeWorkerRepository:
-    Type: AWS::ECR::Repository
-    Properties:
-      RepositoryName: !Sub ${AWS::StackName}-transcode-worker
-      ImageScanningConfiguration:
-        ScanOnPush: true
-      ImageTagMutability: IMMUTABLE
-      EncryptionConfiguration:
-        EncryptionType: AES256
-      LifecyclePolicy:
-        LifecyclePolicyText: |
-          {
-            "rules": [
-              {
-                "rulePriority": 1,
-                "description": "Keep only last 2 images",
-                "selection": {
-                  "tagStatus": "any",
-                  "countType": "imageCountMoreThan",
-                  "countNumber": 2
-                },
-                "action": {
-                  "type": "expire"
-                }
-              }
-            ]
-          }
-      RepositoryPolicyText:
-        Version: '2012-10-17'
-        Statement:
-          - Sid: AllowPullPush
-            Effect: Allow
-            Principal:
-              Service:
-                - ecs-tasks.amazonaws.com
-                - ecr.amazonaws.com
-            Action:
-              - ecr:GetDownloadUrlForLayer
-              - ecr:BatchGetImage
-              - ecr:BatchCheckLayerAvailability
-              - ecr:PutImage
-              - ecr:InitiateLayerUpload
-              - ecr:UploadLayerPart
-              - ecr:CompleteLayerUpload
-  # -----------------------------------------------------------------------------------------------------------------------
-  # ECS
-  # -----------------------------------------------------------------------------------------------------------------------
-  # ECS Cluster 
-  WorkerCluster:
-    Type: AWS::ECS::Cluster
-    Properties:
-      ClusterName: !Sub ${AWS::StackName}-worker-cluster
-      CapacityProviders:
-        - FARGATE
-        - FARGATE_SPOT
-      DefaultCapacityProviderStrategy:
-        - CapacityProvider: FARGATE_SPOT
-          Weight: 1
-      Configuration:
-        ExecuteCommandConfiguration:
-          Logging: DEFAULT
-  # -----------------------------------------------------------------------------------------------------------------------
-  # Task Definition
-  # -----------------------------------------------------------------------------------------------------------------------
-  # Transcoding Task Definition
-  TranscodeTaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: !Sub ${AWS::StackName}-transcode
-      RequiresCompatibilities:
-        - FARGATE
-      NetworkMode: awsvpc
-      Cpu: '4096'
-      Memory: '8192'
-      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
-      TaskRoleArn: !GetAtt TranscodeTaskRole.Arn
-      ContainerDefinitions:
-        - Name: transcode
-          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${TranscodeWorkerRepository}:latest
-          Essential: true
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group: !Ref WorkerClusterLogGroup
-              awslogs-region: !Ref AWS::Region
-              awslogs-stream-prefix: transcode
-              awslogs-create-group: true
-              mode: non-blocking
-  TranscodeTaskRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ecs-tasks.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: TranscodeAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - s3:GetObject
-                  - s3:PutObject
-                Resource:
-                  - !Sub arn:${AWS::Partition}:s3:::${TransportStorage}/*
-                  - !Sub arn:${AWS::Partition}:s3:::${ContentStorage}/*
-              - Effect: Allow
-                Action:
-                  - dynamodb:UpdateItem
-                Resource: !GetAtt MetadataStorage.Arn
-  TaskExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ecs-tasks.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
-
-  CompletionHandler:
-    Type: AWS::Serverless::Function
-    Properties:
-      Description: !Sub
-        - Stack ${AWS::StackName} Function ${ResourceName}
-        - ResourceName: CompletionHandler
-      CodeUri: ./dist
-      Handler: /handlers/completion-handler.completionHandler
-      Runtime: nodejs18.x
-      MemorySize: 3008
-      Timeout: 240
-      Tracing: Active
-      Architectures:
-        - arm64
-      Events:
-        CompletionQueue:
-          Type: SQS
-          Properties:
-            Queue: !GetAtt CompletionQueue.Arn
-            BatchSize: 1
-      Environment:
-        Variables:
-          METADATASTORAGE_TABLE_NAME: !Ref MetadataStorage
-          METADATASTORAGE_TABLE_ARN: !GetAtt MetadataStorage.Arn
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref MetadataStorage
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref AppId
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt CommonDLQ.Arn
+        maxReceiveCount: 5
+  # 4 Common Dead Letter Queue 
   CommonDLQ:
     Type: AWS::SQS::Queue
     Properties:
+      QueueName: !Sub ${AppId}-CommonDLQ
       MessageRetentionPeriod: 345600
+      VisibilityTimeout: 120
+      DelaySeconds: 30
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref AppId
+      Policies:
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt IngestQueue.QueueName
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt TaskQueue.QueueName
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt CompletionQueue.QueueName
   # -----------------------------------------------------------------------------------------------------------------------
-  # Outputs
+  # Network Stack
   # -----------------------------------------------------------------------------------------------------------------------
-Outputs:
-  VpcId:
-    Description: VPC ID
-    Value: !Ref WorkerVPC
-    Export:
-      Name: !Sub ${AWS::StackName}-VpcId
-
-  SubnetId:
-    Description: Public Subnet ID
-    Value: !Ref PublicSubnet
-    Export:
-      Name: !Sub ${AWS::StackName}-SubnetId
-
-  SecurityGroupId:
-    Description: Security Group ID
-    Value: !Ref WorkerSecurityGroup
-    Export:
-      Name: !Sub ${AWS::StackName}-SecurityGroupId
-
-  TranscodeWorkerRepositoryUri:
-    Description: Transcode Worker Repository URI
-    Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${TranscodeWorkerRepository}
-    Export:
-      Name: !Sub ${AWS::StackName}-TranscodeWorkerRepositoryUri
-
-  WorkerClusterArn:
-    Description: Worker Cluster ARN
-    Value: !GetAtt WorkerCluster.Arn
-    Export:
-      Name: !Sub ${AWS::StackName}-WorkerClusterArn
-
-  WorkerClusterName:
-    Description: Worker Cluster Name
-    Value: !Ref WorkerCluster
-    Export:
-      Name: !Sub ${AWS::StackName}-WorkerClusterName
+  NetworkStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./network.yml
+      Parameters:
+        AppId: !Ref AppId
+        Environment: !Ref Environment
+        TransportStorage: !Ref TransportStorage
+        ContentStorage: !Ref ContentStorage
+  # -----------------------------------------------------------------------------------------------------------------------
+  # Worker Stack
+  # -----------------------------------------------------------------------------------------------------------------------
+  WorkerStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: NetworkStack
+    Properties:
+      TemplateURL: ./compute-workers.yml
+      Parameters:
+        AppId: !Ref AppId
+        Environment: !Ref Environment
+        VpcId: !GetAtt NetworkStack.Outputs.VpcId
+        SubnetId: !GetAtt NetworkStack.Outputs.SubnetId
+        SecurityGroupId: !GetAtt NetworkStack.Outputs.SecurityGroupId
+        TransportStorage: !Ref TransportStorage
+        ContentStorage: !Ref ContentStorage
+        MetadataStorageArn: !GetAtt MetadataStorage.Arn

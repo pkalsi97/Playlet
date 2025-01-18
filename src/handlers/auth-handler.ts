@@ -2,7 +2,7 @@ import {
     APIGatewayProxyEvent,
     APIGatewayProxyResult,
     Context
-} from 'aws-lambda';
+} from 'aws-lambda'
 
 import {
     exceptionHandlerFunction,
@@ -30,7 +30,7 @@ const authService = new AuthService(
     process.env.USER_POOL_ID!,
     process.env.CLIENT_ID!,
     process.env.AWS_DEFAULT_REGION!
-);
+)
 
 /**
  * signupFunc expects
@@ -61,7 +61,7 @@ const signupFunc = async (request: IRequest): Promise<IResponse> => {
         success: true,
         message: "Signup Successful",
     };
-};
+}
 
 /**
  * loginFunc expects
@@ -93,7 +93,7 @@ const loginFunc= async (request: IRequest): Promise<IResponse> => {
         message: "Login, Successful!",
         data: loginResponse,
     };
-};
+}
 
 /**
  * logoutFunc expects
@@ -120,7 +120,7 @@ const logoutFunc = async (request: IRequest): Promise<IResponse> => {
         success: true,
         message: 'Logged out successfully'
     };
-};
+}
 
 /**
  * forgetPasswordFunc expects
@@ -150,7 +150,7 @@ const forgetPasswordFunc = async (request: IRequest): Promise<IResponse> => {
         message: 'Reset code sent successfully',
         data:forgetPasswordResponse,
     };
-};
+}
 
 /**
  * forgetPasswordFunc expects
@@ -183,7 +183,7 @@ const confirmForgetPasswordFunc = async (request: IRequest): Promise<IResponse> 
         success: true,
         message: 'Password reset successfully',
     };
-};
+}
 
 /**
  * forgetPasswordFunc expects
@@ -212,7 +212,7 @@ const refreshSessionFunc = async (request: IRequest): Promise<IResponse> => {
         message: "Session Refresh Successful",
         data:sessionRefreshResponse,
     };
-};
+}
 
 const executionFunctionMap: Record<string, (request: IRequest) => Promise<IResponse>> = {
     '/v1/auth/signup': signupFunc,
@@ -221,7 +221,7 @@ const executionFunctionMap: Record<string, (request: IRequest) => Promise<IRespo
     '/v1/auth/forget-password': forgetPasswordFunc,
     '/v1/auth/forget-password/confirm': confirmForgetPasswordFunc,
     '/v1/auth/session/refresh': refreshSessionFunc
-};
+}
 
 export const authHandler = async(event: APIGatewayProxyEvent, context: Context): Promise<APIGatewayProxyResult> => {
     try {
@@ -263,4 +263,4 @@ export const authHandler = async(event: APIGatewayProxyEvent, context: Context):
             }),
         };
     }
-};
+}

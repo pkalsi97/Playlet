@@ -2,7 +2,7 @@ import {
     APIGatewayProxyEvent,
     APIGatewayProxyResult,
     Context
-} from 'aws-lambda';
+} from 'aws-lambda'
 
 import {
     Fault,
@@ -22,11 +22,8 @@ import {
     ValidationService
 } from '../services/auth/validation-service'
 
-import {
-    UploadService,
-    UploadServiceResponse
-} from "../services/storage/upload-service"
-
+import { getUploadKey } from '../utils/key-service'
+import { UploadService } from "../services/storage/upload-service"
 import { AuthService } from "../services/auth/auth-service"
 
 
@@ -35,13 +32,13 @@ const uploadService = new UploadService(
     process.env.AWS_DEFAULT_REGION!,
     process.env.UPLOAD_SIZE_LIMIT!,
     process.env.UPLOAD_TIME_LIMIT!,
-);
+)
 
 const authService = new AuthService(
     process.env.USER_POOL_ID!,
     process.env.CLIENT_ID!,
     process.env.AWS_DEFAULT_REGION!
-);
+)
 
 const uploadRequestFunc = async (request:IRequest):Promise<IResponse> => {
     const validationResult:ValidationResponse = ValidationService.validate(request,[
@@ -56,8 +53,9 @@ const uploadRequestFunc = async (request:IRequest):Promise<IResponse> => {
     const token = request.headers?.['x-access-token'];
     const accessToken = token?.slice(7)!;
     const userId = await authService.getUser(accessToken);
+    const key = getUploadKey(userId);
 
-    const uploadServiceResponse = await uploadService.generatePreSignedPost(userId);
+    const uploadServiceResponse = await uploadService.generatePreSignedPost(userId,key);
     if (!uploadServiceResponse){
         throw new CustomError(ErrorName.UPLOAD_SERVICE_ERROR,"Upload Service is down!",503,Fault.SERVER,true);
     }
@@ -72,14 +70,14 @@ const uploadRequestFunc = async (request:IRequest):Promise<IResponse> => {
 
 const executionFunctionMap: Record<string, (request: IRequest) => Promise<IResponse>> = {
     '/v1/user/upload-request': uploadRequestFunc,
-};
+}
 
 export const uploadHandler = async(event:APIGatewayProxyEvent,context:Context): Promise<APIGatewayProxyResult> =>{
     try{    
         const path = event.path;
         const executionFunction = executionFunctionMap[path];
         if (!executionFunction) {
-            throw new CustomError(ErrorName.INTERNAL_ERROR,`No Function Mapping Found For ${path}`,404,Fault.CLIENT,true);
+            throw new CustomError(ErrorName.INTERNAL_ERROR,`No Function Mapping Found For ${path}`,404,Fault.CLIENT,true)
         }
 
         const request : IRequest = {
@@ -99,10 +97,10 @@ export const uploadHandler = async(event:APIGatewayProxyEvent,context:Context): 
         return {
             statusCode:200,
             body: JSON.stringify(response)
-        };
+        }
 
     } catch (error){
-        const errorResponse = exceptionHandlerFunction(error);
+        const errorResponse = exceptionHandlerFunction(error)
         return {
             statusCode:errorResponse.statusCode,
             body:JSON.stringify({
@@ -111,6 +109,6 @@ export const uploadHandler = async(event:APIGatewayProxyEvent,context:Context): 
                 body:{},
                 error:errorResponse.metadata,
             }),
-        };
+        }
     }
 }

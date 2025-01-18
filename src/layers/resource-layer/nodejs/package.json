@@ -1,7 +1,0 @@
-{
-  "name": "resource-layer",
-  "version": "1.0.0",
-  "dependencies": {
-    "fluent-ffmpeg": "^2.1.3"
-  }
-}

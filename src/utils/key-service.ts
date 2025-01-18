@@ -1,4 +1,5 @@
-import { CustomError, ErrorName, Fault} from './error-handling';
+import { CustomError, ErrorName, Fault} from '../utils/error-handling';
+import crypto from 'crypto';
 
 
 // make a key service ultimately
@@ -8,7 +9,6 @@ export interface KeyOwner {
 }
 
 export const getOwner = (key: string): KeyOwner => {
-    // userId/yyyy/mm/hash
     const parts = key.split('/');
     if (parts.length !== 4) {
         throw new CustomError(
@@ -24,4 +24,19 @@ export const getOwner = (key: string): KeyOwner => {
     const assetId = parts[3];
 
     return { userId, assetId };
-}; 
+}
+
+export const getUploadKey = (userId:string):string=>{
+    const timestamp: number = Date.now();
+    const uniqueId: string = crypto.randomUUID();
+    const hash: string = crypto.createHash('sha256')
+        .update('${userId}-${timestamp}-${uniqueId}')
+        .digest('hex')
+        .substring(0,32);
+
+    return '${userId}/${hash}';
+}
+
+// -> upload key - userId/assetId
+
+

@@ -11,7 +11,7 @@ import {
     ForgotPasswordCommandOutput,
     AdminDeleteUserCommand,
     GetUserCommand,
-} from '@aws-sdk/client-cognito-identity-provider';
+} from '@aws-sdk/client-cognito-identity-provider'
 
 export class AuthService{
     private cognitoClient: CognitoIdentityProviderClient;
@@ -24,7 +24,7 @@ export class AuthService{
         this.clientId = clientId;
         this.region = region;
         this.cognitoClient = new CognitoIdentityProviderClient({region:this.region});
-    };
+    }
 
     public async createUser(email:string,password:string):Promise<boolean>{
         const createUserCommand = new SignUpCommand({
@@ -53,7 +53,7 @@ export class AuthService{
             return false;
         }
         return true;
-    };
+    }
 
     private async adminDeleteUser(email:string):Promise<boolean> {
         const command = new AdminDeleteUserCommand({
@@ -78,7 +78,7 @@ export class AuthService{
 
         const response = await this.cognitoClient.send(command);
         return response?true:false;
-    };
+    }
 
     private async adminConfirmUser(email:string):Promise<boolean>{
         const command = new AdminConfirmSignUpCommand({
@@ -87,7 +87,7 @@ export class AuthService{
         });
         const response = await this.cognitoClient.send(command);
         return response?true:false;
-    };
+    }
 
     public async login(email:string,password:string):Promise<InitiateAuthCommandOutput['AuthenticationResult']>{
         const command = new InitiateAuthCommand({
@@ -101,7 +101,7 @@ export class AuthService{
     
         const response = await this.cognitoClient.send(command);
         return response.AuthenticationResult;
-    };
+    }
 
     public async forgetPassword(email:string):Promise<ForgotPasswordCommandOutput["CodeDeliveryDetails"]>{
         const command = new ForgotPasswordCommand({
@@ -111,7 +111,7 @@ export class AuthService{
 
         const response = await this.cognitoClient.send(command);
         return response.CodeDeliveryDetails;
-    };
+    }
 
     public async confirmForgetPassword(email:string,password:string,answer:string):Promise<boolean>{
         const command = new ConfirmForgotPasswordCommand({
@@ -156,4 +156,4 @@ export class AuthService{
         const userId = response.UserAttributes!.find(att => att.Name === 'sub')!.Value!;
         return userId;
     }
-};
+}
