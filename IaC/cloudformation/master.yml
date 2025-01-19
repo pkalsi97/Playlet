@@ -681,7 +681,7 @@ Resources:
   NetworkStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub https://${S3Bucket}.s3.${AWS::Region}.amazonaws.com/nested-templates/network.yml
+      TemplateURL: !Sub https://${S3Bucket}.s3.${AWS::Region}.amazonaws.com/packaged-templates/network.yml
       Parameters:
         AppId: !Ref AppId
         Environment: !Ref Environment
@@ -694,7 +694,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     DependsOn: NetworkStack
     Properties:
-      TemplateURL: !Sub https://${S3Bucket}.s3.${AWS::Region}.amazonaws.com/nested-templates/compute-workers.yml
+      TemplateURL: !Sub https://${S3Bucket}.s3.${AWS::Region}.amazonaws.com/packaged-templates/compute-workers.yml
       Parameters:
         AppId: !Ref AppId
         Environment: !Ref Environment
