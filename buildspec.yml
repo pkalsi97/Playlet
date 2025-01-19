@@ -17,8 +17,27 @@ phases:
       - echo "Starting build..."
       - npm run build
       - cp -r dist IaC/cloudformation/dist
-      - echo "Running CloudFormation package..."
-      - aws cloudformation package --template IaC/cloudformation/master.yml --s3-bucket $S3_BUCKET --output-template-file packaged.yml
+      
+      - mkdir -p packaged-templates
+
+      - aws cloudformation package \
+          --template-file IaC/cloudformation/network.yml \
+          --s3-bucket $S3_BUCKET \
+          --s3-prefix nested-templates \
+          --output-template-file packaged-templates/network.yml
+          
+      - aws cloudformation package \
+          --template-file IaC/cloudformation/compute-workers.yml \
+          --s3-bucket $S3_BUCKET \
+          --s3-prefix nested-templates \
+          --output-template-file packaged-templates/compute-workers.yml
+      
+      - aws cloudformation package \
+          --template-file IaC/cloudformation/master.yml \
+          --s3-bucket $S3_BUCKET \
+          --s3-prefix root \
+          --output-template-file template-export.yml
+      
       - echo "✓ Build completed"
       
   post_build:
@@ -30,8 +49,8 @@ phases:
 
 artifacts:
   files:
-    - packaged.yml
-    - IaC/**/*
+    - template-export.yml
+    - packaged-templates/**/*
     - dist/**/*
     - package.json
     - package-lock.json
