@@ -1,6 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: Worker Compute Resources for MediaRelay
-Transform: AWS::Serverless-2016-10-31
 
 Parameters:
   AppId:
@@ -37,7 +36,7 @@ Resources:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Retain
     Properties:
-      LogGroupName: !Sub /aws/ecs/${AWS::StackName}-worker-cluster
+      LogGroupName: !Sub /aws/ecs/${AppId}-worker-cluster
       RetentionInDays: 7
       Tags:
         - Key: Environment
@@ -48,7 +47,7 @@ Resources:
   WorkerCluster:
     Type: AWS::ECS::Cluster
     Properties:
-      ClusterName: !Sub ${AWS::StackName}-worker-cluster
+      ClusterName: !Sub ${AppId}-worker-cluster
       CapacityProviders:
         - FARGATE
         - FARGATE_SPOT
@@ -67,7 +66,7 @@ Resources:
   WorkerRepository:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: !Sub ${AWS::StackName}-worker
+      RepositoryName: !Sub ${AppId}-worker
       ImageScanningConfiguration:
         ScanOnPush: true
       ImageTagMutability: IMMUTABLE
@@ -120,7 +119,7 @@ Resources:
   ProcessorTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      Family: !Sub ${AWS::StackName}-processor
+      Family: !Sub ${AppId}-processor
       RequiresCompatibilities:
         - FARGATE
       NetworkMode: awsvpc
@@ -164,7 +163,7 @@ Resources:
   HelperTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      Family: !Sub ${AWS::StackName}-helper
+      Family: !Sub ${AppId}-helper
       RequiresCompatibilities:
         - FARGATE
       NetworkMode: awsvpc
@@ -333,44 +332,44 @@ Outputs:
     Description: Worker Cluster ARN
     Value: !GetAtt WorkerCluster.Arn
     Export:
-      Name: !Sub ${AWS::StackName}-WorkerClusterArn
+      Name: !Sub ${AppId}-WorkerClusterArn
   WorkerRepositoryUri:
     Description: Worker Repository URI
     Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${WorkerRepository}
     Export:
-      Name: !Sub ${AWS::StackName}-WorkerRepositoryUri
+      Name: !Sub ${AppId}-WorkerRepositoryUri
   ProcessorTaskDefinitionArn:
     Description: Processor Task Definition ARN
     Value: !Ref ProcessorTaskDefinition
     Export:
-      Name: !Sub ${AWS::StackName}-ProcessorTaskDefinitionArn
+      Name: !Sub ${AppId}-ProcessorTaskDefinitionArn
   HelperTaskDefinitionArn:
     Description: Helper Task Definition ARN
     Value: !Ref HelperTaskDefinition
     Export:
-      Name: !Sub ${AWS::StackName}-HelperTaskDefinitionArn
+      Name: !Sub ${AppId}-HelperTaskDefinitionArn
   WorkerClusterLogGroupName:
     Description: Worker Cluster Log Group Name
     Value: !Ref WorkerClusterLogGroup
     Export:
-      Name: !Sub ${AWS::StackName}-WorkerClusterLogGroupName
+      Name: !Sub ${AppId}-WorkerClusterLogGroupName
   WorkerClusterName:
     Description: Worker Cluster Name
     Value: !Ref WorkerCluster
     Export:
-      Name: !Sub ${AWS::StackName}-WorkerClusterName
+      Name: !Sub ${AppId}-WorkerClusterName
   ProcessorTaskRoleArn:
     Description: Processor Task Role ARN
     Value: !GetAtt ProcessorTaskRole.Arn
     Export:
-      Name: !Sub ${AWS::StackName}-ProcessorTaskRoleArn
+      Name: !Sub ${AppId}-ProcessorTaskRoleArn
   HelperTaskRoleArn:
     Description: Helper Task Role ARN
     Value: !GetAtt HelperTaskRole.Arn
     Export:
-      Name: !Sub ${AWS::StackName}-HelperTaskRoleArn
+      Name: !Sub ${AppId}-HelperTaskRoleArn
   TaskExecutionRoleArn:
     Description: Task Execution Role ARN
     Value: !GetAtt TaskExecutionRole.Arn
     Export:
-      Name: !Sub ${AWS::StackName}-TaskExecutionRoleArn
+      Name: !Sub ${AppId}-TaskExecutionRoleArn
