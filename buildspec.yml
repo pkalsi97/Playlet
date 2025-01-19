@@ -12,8 +12,11 @@ phases:
       - echo "Starting build..."
       - npm run build
       - cp -r dist IaC/cloudformation/dist
+      - mkdir -p packed-templates
+      - aws cloudformation package --template-file IaC/cloudformation/network.yml --s3-bucket $S3_BUCKET --output-template-file packed-templates/network.yml
+      - aws cloudformation package --template-file IaC/cloudformation/compute-workers.yml --s3-bucket $S3_BUCKET --output-template-file packed-templates/compute-workers.yml
       - aws cloudformation package --template-file IaC/cloudformation/master.yml --s3-bucket $S3_BUCKET --output-template-file template-export.yml
-  
+      
   post_build:
     commands:
       - echo "Starting post-build cleanup..."
@@ -24,6 +27,7 @@ phases:
 artifacts:
   files:
     - template-export.yml
+    - packed-templates/**/*
     - dist/**/*
     - package.json
     - package-lock.json
