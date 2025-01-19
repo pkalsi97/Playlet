@@ -10,7 +10,7 @@ export interface KeyOwner {
 
 export const getOwner = (key: string): KeyOwner => {
     const parts = key.split('/');
-    if (parts.length !== 4) {
+    if (parts.length < 2) {
         throw new CustomError(
             ErrorName.PREPROCESSING_ERROR, 
             "Invalid Key Format",
@@ -21,7 +21,7 @@ export const getOwner = (key: string): KeyOwner => {
     }
 
     const userId = parts[0];
-    const assetId = parts[3];
+    const assetId = parts[1];
 
     return { userId, assetId };
 }

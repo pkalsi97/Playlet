@@ -70,15 +70,9 @@ export class MetadataCache {
                         updatedAt: { S: new Date().toISOString() },
                         hasCriticalFailure: { BOOL: false }
                     }
-                },
-                gops: {
-                    M: {
-                        totalCount: { N: "0" },
-                        completedCount: { N: "0" },
-                        segments: { L: [] }
-                    }
-                },
+                }
             },
+            ConditionExpression:"attribute_not_exists(userId) AND attribute_not_exists(assetId)"
         });
 
         const response = await this.dbclient.send(command);

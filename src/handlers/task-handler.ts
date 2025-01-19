@@ -1,1 +1,5 @@
-/handlers/task-handler.taskHandler
+
+
+export const taskHandler = async(event:any):Promise<any> => {
+
+}

@@ -1,1 +1,5 @@
-handlers/dlq-handler.dlqHandler
+
+
+export const dlqHandler = async(event:any):Promise<any> =>{
+
+}

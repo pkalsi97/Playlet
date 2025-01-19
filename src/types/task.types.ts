@@ -1,16 +1,15 @@
 export enum TaskType {
-    GOP_CREATION = 'GOP_CREATION',
-    TRANSCODING = 'TRANSCODING'
+    TRANSCODE = 'TRANSCODE'
 }
 
 export enum WorkerType {
-    TRANSCODER_WORKER = 'TRANSCODER_WORKER',
-    GOP_WORKER = 'GOP_WORKER'
+    PROCESSOR = 'PROCESSOR',
+    HELPER = 'HELPER'
 }
 
 export interface Location {
-    Bucket: string;
-    Key: string;
+    Bucket?: string;
+    Key?: string;
 }
 
 export interface Task {

@@ -492,9 +492,7 @@ Resources:
             ExpirationInDays: !Ref TransportExpiryDays
       NotificationConfiguration:
         QueueConfigurations:
-          - Event: s3:ObjectCreated:*
-            Queue: !GetAtt IngestQueue.Arn
-          - Event: s3:ObjectRemoved:*
+          - Event: s3:ObjectCreated:Post
             Queue: !GetAtt IngestQueue.Arn
     DependsOn:
       - TransportStorageToIngestQueuePermission
@@ -530,9 +528,7 @@ Resources:
         RestrictPublicBuckets: true
       NotificationConfiguration:
         QueueConfigurations:
-          - Event: s3:ObjectCreated:*
-            Queue: !GetAtt CompletionQueue.Arn
-          - Event: s3:ObjectRemoved:*
+          - Event: s3:ObjectCreated:Post
             Queue: !GetAtt CompletionQueue.Arn
     DependsOn:
       - ContentStorageToCompletionQueuePermission
