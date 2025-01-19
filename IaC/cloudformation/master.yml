@@ -1,0 +1,706 @@
+#########################################################################################
+# CRITICAL INFRASTRUCTURE CONFIGURATION                                                   #
+# This template defines core infrastructure components.                                   #
+# Modifications may result in:                                                            #
+#   - Service disruptions                                                                 #
+#   - Data loss                                                                           #
+#   - Resource deletion                                                                   #
+# Ensure proper change management procedures are followed before making any modifications.#
+######################################################################################### 
+AWSTemplateFormatVersion: 2010-09-09
+Description: A Serverless & Loosely Coupled Video Transcoding & Delivery Project
+Transform: AWS::Serverless-2016-10-31
+
+Globals:
+  #FUNCTIONS
+  Function:
+    PermissionsBoundary: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${AppId}-${AWS::Region}-PermissionsBoundary
+    Environment:
+      Variables:
+        USER_POOL_ID: !Ref UserPool
+        CLIENT_ID: !Ref UserPoolClient
+        UPLOAD_SIZE_LIMIT: !Ref UploadSizeLimit
+        UPLOAD_TIME_LIMIT: !Ref UploadTimeLimit
+        TRANSPORTSTORAGE_BUCKET_NAME: !Ref TransportStorage
+    LoggingConfig:
+      ApplicationLogLevel: WARN
+      LogFormat: JSON
+      LogGroup: !Ref BackendFuncLogGroup
+      SystemLogLevel: WARN
+    Tags:
+      Application: !Sub ${AppId}
+      Environment: !Ref Environment
+  #APIs
+  Api:
+    EndpointConfiguration: REGIONAL
+    TracingEnabled: true
+    Cors:
+      AllowOrigin: '''*'''
+      AllowHeaders: '''Content-Type, Authorization, X-Access-Token'''
+      AllowMethods: '''POST'''
+      MaxAge: 5
+    MethodSettings:
+      - ResourcePath: /*
+        HttpMethod: '*'
+        LoggingLevel: ERROR
+        DataTraceEnabled: true
+    Auth:
+      Authorizers:
+        Cognito-playlet:
+          UserPoolArn: !Sub arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPool}
+          IdentitySource: $request.header.Authorization
+          JwtConfiguration:
+            Audience:
+              - !Ref UserPoolClient
+            Issuer: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}
+Parameters:
+  AppId:
+    Type: String
+    Description: Playlet Project
+  UploadSizeLimit:
+    Type: Number
+    Description: Upload Size Limit for content-length-range
+  UploadTimeLimit:
+    Type: Number
+    Description: Upload Time Limit for preSignedPost
+  TransportExpiryDays:
+    Type: Number
+    Description: File Expiry Days for Transport
+  Environment:
+    Type: String
+    Description: Deployment Environment
+    Default: Production
+    AllowedValues:
+      - Development
+      - Staging
+      - Production
+Resources:
+  # -----------------------------------------------------------------------------------------------------------------------
+  # LOGGING & MONITORING
+  # -----------------------------------------------------------------------------------------------------------------------
+  # Common Logging Group for all lambda
+  BackendFuncLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AppId}-Backend-Func-Logs
+      RetentionInDays: 7
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref AppId
+  # -----------------------------------------------------------------------------------------------------------------------
+  # AUTHENTICATION & AUTHORIZATION
+  # -----------------------------------------------------------------------------------------------------------------------
+  # User Pool
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${AppId}-userpool
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      DeletionProtection: ACTIVE
+      MfaConfiguration: 'OFF'
+      UsernameConfiguration:
+        CaseSensitive: true
+      UsernameAttributes:
+        - email
+      Schema:
+        - AttributeDataType: String
+          Mutable: true
+          Name: email
+          Required: true
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: false
+          RequireNumbers: false
+          RequireSymbols: false
+          RequireUppercase: false
+  # User Pool Client
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub ${AppId}-client
+      AccessTokenValidity: 24
+      IdTokenValidity: 24
+      RefreshTokenValidity: 365
+      SupportedIdentityProviders:
+        - COGNITO
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      PreventUserExistenceErrors: ENABLED
+  # -----------------------------------------------------------------------------------------------------------------------
+  # LAMBDA
+  # -----------------------------------------------------------------------------------------------------------------------
+  # Auth Handler Lambda Function
+  AuthHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: !Sub
+        - Stack ${AWS::StackName} Function ${ResourceName}
+        - ResourceName: AuthHandler
+      CodeUri: ./dist
+      Handler: handlers/auth-handler.authHandler
+      Runtime: nodejs18.x
+      MemorySize: 1024
+      Timeout: 60
+      Tracing: Active
+      Architectures:
+        - arm64
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - AmazonCognitoPowerUser
+        - AWSXrayWriteOnlyAccess
+      Events:
+        AuthAPIsPOSTv1authsignup:
+          Type: Api
+          Properties:
+            Path: /v1/auth/signup
+            Method: POST
+            RestApiId: !Ref AuthAPIs
+        AuthAPIsPOSTv1authlogin:
+          Type: Api
+          Properties:
+            Path: /v1/auth/login
+            Method: POST
+            RestApiId: !Ref AuthAPIs
+        AuthAPIsPOSTv1authlogout:
+          Type: Api
+          Properties:
+            Path: /v1/auth/logout
+            Method: POST
+            RestApiId: !Ref AuthAPIs
+        AuthAPIsPOSTv1authforgetpassword:
+          Type: Api
+          Properties:
+            Path: /v1/auth/forget-password
+            Method: POST
+            RestApiId: !Ref AuthAPIs
+        AuthAPIsPOSTv1authforgetpasswordconfirm:
+          Type: Api
+          Properties:
+            Path: /v1/auth/forget-password/confirm
+            Method: POST
+            RestApiId: !Ref AuthAPIs
+        AuthAPIsPOSTv1authsessionrefresh:
+          Type: Api
+          Properties:
+            Path: /v1/auth/session/refresh
+            Method: POST
+            RestApiId: !Ref AuthAPIs
+      Environment:
+        Variables:
+          CLIENT_ID: !Ref UserPoolClient
+  # Upload Handler Lambda Function
+  UploadHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: !Sub
+        - Stack ${AWS::StackName} Function ${ResourceName}
+        - ResourceName: UploadHandler
+      CodeUri: ./dist
+      Handler: handlers/upload-handler.uploadHandler
+      Runtime: nodejs18.x
+      MemorySize: 1024
+      Timeout: 60
+      Tracing: Active
+      Architectures:
+        - arm64
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - AWSXrayWriteOnlyAccess
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:GetObjectAcl
+                - s3:GetObjectLegalHold
+                - s3:GetObjectRetention
+                - s3:GetObjectTorrent
+                - s3:GetObjectVersion
+                - s3:GetObjectVersionAcl
+                - s3:GetObjectVersionForReplication
+                - s3:GetObjectVersionTorrent
+                - s3:ListBucket
+                - s3:ListBucketMultipartUploads
+                - s3:ListBucketVersions
+                - s3:ListMultipartUploadParts
+                - s3:AbortMultipartUpload
+                - s3:DeleteObject
+                - s3:DeleteObjectVersion
+                - s3:PutObject
+                - s3:PutObjectLegalHold
+                - s3:PutObjectRetention
+                - s3:RestoreObject
+              Resource:
+                - !Sub arn:${AWS::Partition}:s3:::${TransportStorage}
+                - !Sub arn:${AWS::Partition}:s3:::${TransportStorage}/*
+      Events:
+        UserActionsAPIsPOSTv1useruploadrequest:
+          Type: Api
+          Properties:
+            Path: /v1/user/upload-request
+            Method: POST
+            RestApiId: !Ref UserActionsAPIs
+      Environment:
+        Variables:
+          TRANSPORTSTORAGE_BUCKET_NAME: !Ref TransportStorage
+          TRANSPORTSTORAGE_BUCKET_ARN: !GetAtt TransportStorage.Arn
+    #Completion Handler
+  IngestHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: !Sub
+        - Stack ${AWS::StackName} Function ${ResourceName}
+        - ResourceName: IngestHandler
+      CodeUri: ./dist
+      Handler: /handlers/ingest-handler.ingestHandler
+      Runtime: nodejs18.x
+      MemorySize: 3008
+      Timeout: 240
+      Tracing: Active
+      Architectures:
+        - arm64
+      Events:
+        IngestQueue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt IngestQueue.Arn
+            BatchSize: 1
+      Environment:
+        Variables:
+          METADATASTORAGE_TABLE_NAME: !Ref MetadataStorage
+          METADATASTORAGE_TABLE_ARN: !GetAtt MetadataStorage.Arn
+          TASKQUEUE_QUEUE_NAME: !GetAtt TaskQueue.QueueName
+          TASKQUEUE_QUEUE_ARN: !GetAtt TaskQueue.Arn
+          TASKQUEUE_QUEUE_URL: !Ref TaskQueue
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MetadataStorage
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt TaskQueue.QueueName
+  #Completion Handler
+  CompletionHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: !Sub
+        - Stack ${AWS::StackName} Function ${ResourceName}
+        - ResourceName: CompletionHandler
+      CodeUri: ./dist
+      Handler: /handlers/completion-handler.completionHandler
+      Runtime: nodejs18.x
+      MemorySize: 3008
+      Timeout: 240
+      Tracing: Active
+      Architectures:
+        - arm64
+      Events:
+        CompletionQueue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt CompletionQueue.Arn
+            BatchSize: 1
+            MaximumBatchingWindowInSeconds: 10
+      Environment:
+        Variables:
+          METADATASTORAGE_TABLE_NAME: !Ref MetadataStorage
+          METADATASTORAGE_TABLE_ARN: !GetAtt MetadataStorage.Arn
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - AWSXrayWriteOnlyAccess
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MetadataStorage
+  TaskHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: !Sub
+        - Stack ${AWS::StackName} Function ${ResourceName}
+        - ResourceName: TaskHandler
+      CodeUri: ./dist
+      Handler: /handlers/task-handler.taskHandler
+      Runtime: nodejs18.x
+      MemorySize: 3008
+      Timeout: 240
+      Tracing: Active
+      Architectures:
+        - arm64
+      Events:
+        TaskQueue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt TaskQueue.Arn
+            BatchSize: 1
+      Environment:
+        Variables:
+          METADATASTORAGE_TABLE_NAME: !Ref MetadataStorage
+          METADATASTORAGE_TABLE_ARN: !GetAtt MetadataStorage.Arn
+          WORKER_CLUSTER_ARN: !GetAtt WorkerStack.Outputs.WorkerClusterArn
+          PROCESSOR_TASK_DEFINITION: !GetAtt WorkerStack.Outputs.ProcessorTaskDefinitionArn
+          HELPER_TASK_DEFINITION: !GetAtt WorkerStack.Outputs.HelperTaskDefinitionArn
+          SUBNET_ID: !GetAtt NetworkStack.Outputs.SubnetId
+          SECURITY_GROUP_ID: !GetAtt NetworkStack.Outputs.SecurityGroupId
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MetadataStorage
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ecs:RunTask
+                - ecs:DescribeTasks
+                - ecs:StopTask
+              Resource:
+                - !GetAtt WorkerStack.Outputs.ProcessorTaskDefinitionArn
+                - !GetAtt WorkerStack.Outputs.HelperTaskDefinitionArn
+                - !Sub arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task/*
+  DLQHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: !Sub
+        - Stack ${AWS::StackName} Function ${ResourceName}
+        - ResourceName: DLQHandler
+      CodeUri: ./dist
+      Handler: /handlers/dlq-handler.dlqHandler
+      Runtime: nodejs18.x
+      MemorySize: 3008
+      Timeout: 240
+      Tracing: Active
+      Architectures:
+        - arm64
+      Events:
+        CommonDLQ:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt CommonDLQ.Arn
+            BatchSize: 1
+      Environment:
+        Variables:
+          METADATASTORAGE_TABLE_NAME: !Ref MetadataStorage
+          METADATASTORAGE_TABLE_ARN: !GetAtt MetadataStorage.Arn
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MetadataStorage
+
+  # -----------------------------------------------------------------------------------------------------------------------
+  # API GATEWAY
+  # -----------------------------------------------------------------------------------------------------------------------
+  #AUTH APIs
+  AuthAPIs:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub
+        - ${ResourceName} From Stack ${AWS::StackName}
+        - ResourceName: AuthAPIs
+      StageName: Prod
+      DefinitionBody:
+        openapi: '3.0'
+        info: {}
+        paths:
+          /v1/auth/signup:
+            post:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthHandler.Arn}/invocations
+              responses: {}
+          /v1/auth/login:
+            post:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthHandler.Arn}/invocations
+              responses: {}
+          /v1/auth/logout:
+            post:
+              security:
+                - Cognito-playlet: []
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthHandler.Arn}/invocations
+              responses: {}
+          /v1/auth/forget-password:
+            post:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthHandler.Arn}/invocations
+              responses: {}
+          /v1/auth/forget-password/confirm:
+            post:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthHandler.Arn}/invocations
+              responses: {}
+          /v1/auth/session/refresh:
+            post:
+              security:
+                - Cognito-playlet: []
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthHandler.Arn}/invocations
+              responses: {}
+  # User Actions APIs
+  UserActionsAPIs:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub
+        - ${ResourceName} From Stack ${AWS::StackName}
+        - ResourceName: UserActionsAPIs
+      StageName: Prod
+      DefinitionBody:
+        openapi: '3.0'
+        info: {}
+        paths:
+          /v1/user/upload-request:
+            post:
+              security:
+                - Cognito-playlet: []
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UploadHandler.Arn}/invocations
+              responses: {}
+  # -----------------------------------------------------------------------------------------------------------------------
+  # STORAGE
+  # -----------------------------------------------------------------------------------------------------------------------
+  #S3 Bucket Used For Uploads & Its Policy
+  TransportStorage:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-transport-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Status: Enabled
+            ExpirationInDays: !Ref TransportExpiryDays
+      NotificationConfiguration:
+        QueueConfigurations:
+          - Event: s3:ObjectCreated:Post
+            Queue: !GetAtt IngestQueue.Arn
+    DependsOn:
+      - TransportStorageToIngestQueuePermission
+  TransportStorageBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref TransportStorage
+      PolicyDocument:
+        Id: RequireEncryptionInTransit
+        Version: '2012-10-17'
+        Statement:
+          - Principal: '*'
+            Action: '*'
+            Effect: Deny
+            Resource:
+              - !GetAtt TransportStorage.Arn
+              - !Sub ${TransportStorage.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+    # Content Storage
+  ContentStorage:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-contentst-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: alias/aws/s3
+      PublicAccessBlockConfiguration:
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      NotificationConfiguration:
+        QueueConfigurations:
+          - Event: s3:ObjectCreated:Post
+            Queue: !GetAtt CompletionQueue.Arn
+    DependsOn:
+      - ContentStorageToCompletionQueuePermission
+  ContentStorageBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ContentStorage
+      PolicyDocument:
+        Id: RequireEncryptionInTransit
+        Version: '2012-10-17'
+        Statement:
+          - Principal: '*'
+            Action: '*'
+            Effect: Deny
+            Resource:
+              - !GetAtt ContentStorage.Arn
+              - !Sub ${ContentStorage.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+  # Metadata storage
+  MetadataStorage:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      DeletionProtectionEnabled: true
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: assetId
+          AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: assetId
+          KeyType: RANGE
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref AppId
+  # -----------------------------------------------------------------------------------------------------------------------
+  # SQS QUEUES
+  # -----------------------------------------------------------------------------------------------------------------------
+  # 1 Ingestion Queue
+  IngestQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AppId}-IngestQueue
+      MessageRetentionPeriod: 345600
+      VisibilityTimeout: 120
+      DelaySeconds: 30
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref AppId
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt CommonDLQ.Arn
+        maxReceiveCount: 5
+  TransportStorageToIngestQueuePermission:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt IngestQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Sub arn:${AWS::Partition}:s3:::${AWS::StackName}-transport-${AWS::AccountId}
+      Queues:
+        - !Ref IngestQueue
+  # 2 Completion Queue
+  CompletionQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AppId}-CompletionQueue
+      MessageRetentionPeriod: 345600
+      VisibilityTimeout: 120
+      DelaySeconds: 30
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref AppId
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt CommonDLQ.Arn
+        maxReceiveCount: 5
+  ContentStorageToCompletionQueuePermission:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt CompletionQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Sub arn:${AWS::Partition}:s3:::${AWS::StackName}-contentst-${AWS::AccountId}
+      Queues:
+        - !Ref CompletionQueue
+  # 3 TaskQueue
+  TaskQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AppId}-TaskQueue
+      MessageRetentionPeriod: 345600
+      VisibilityTimeout: 120
+      DelaySeconds: 30
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref AppId
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt CommonDLQ.Arn
+        maxReceiveCount: 5
+  # 4 Common Dead Letter Queue 
+  CommonDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AppId}-CommonDLQ
+      MessageRetentionPeriod: 345600
+      VisibilityTimeout: 120
+      DelaySeconds: 30
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref AppId
+      Policies:
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt IngestQueue.QueueName
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt TaskQueue.QueueName
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt CompletionQueue.QueueName
+  # -----------------------------------------------------------------------------------------------------------------------
+  # Network Stack
+  # -----------------------------------------------------------------------------------------------------------------------
+  NetworkStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./network.yml
+      Parameters:
+        AppId: !Ref AppId
+        Environment: !Ref Environment
+        TransportStorage: !Ref TransportStorage
+        ContentStorage: !Ref ContentStorage
+  # -----------------------------------------------------------------------------------------------------------------------
+  # Worker Stack
+  # -----------------------------------------------------------------------------------------------------------------------
+  WorkerStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: NetworkStack
+    Properties:
+      TemplateURL: ./compute-workers.yml
+      Parameters:
+        AppId: !Ref AppId
+        Environment: !Ref Environment
+        VpcId: !GetAtt NetworkStack.Outputs.VpcId
+        SubnetId: !GetAtt NetworkStack.Outputs.SubnetId
+        SecurityGroupId: !GetAtt NetworkStack.Outputs.SecurityGroupId
+        TransportStorage: !Ref TransportStorage
+        ContentStorage: !Ref ContentStorage
+        MetadataStorageArn: !GetAtt MetadataStorage.Arn

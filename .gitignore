@@ -1,3 +1,9 @@
-node_modules/
-dist/
+node_modules
+
+/src/tests/manual/*
+/src/local/*
+test-results/*
+*.test.local.ts
 .env
+temp.ts
+>>>>>>> v1-proof-of-concept
