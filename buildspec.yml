@@ -7,18 +7,13 @@ phases:
       - echo "Installing project dependencies..."
       - npm install --quiet
       
-  pre_build:
-    commands:
-      - echo "Starting pre-build phase..."
-      - echo "✓ Pre-build completed"
-      
   build:
     commands:
-    - echo "Starting build..."
-    - npm run build
-    - cp -r dist IaC/cloudformation/dist
-    - aws cloudformation package --template-file IaC/cloudformation/master.yml --s3-bucket $S3_BUCKET --output-template-file template-export.yml
-      
+      - echo "Starting build..."
+      - npm run build
+      - cp -r dist IaC/cloudformation/dist
+      - aws cloudformation package --template-file IaC/cloudformation/master.yml --s3-bucket $S3_BUCKET --output-template-file template-export.yml
+  
   post_build:
     commands:
       - echo "Starting post-build cleanup..."
@@ -29,7 +24,6 @@ phases:
 artifacts:
   files:
     - template-export.yml
-    - packaged-templates/**/*
     - dist/**/*
     - package.json
     - package-lock.json

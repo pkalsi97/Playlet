@@ -681,24 +681,24 @@ Resources:
   NetworkStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: ./IaC/cloudformation/network.yml
+      TemplateURL: network.yml
       Parameters:
         AppId: !Ref AppId
         Environment: !Ref Environment
         TransportStorage: !Ref TransportStorage
         ContentStorage: !Ref ContentStorage
 
-WorkerStack:
-  Type: AWS::CloudFormation::Stack
-  DependsOn: NetworkStack
-  Properties:
-    TemplateURL: ./IaC/cloudformation/compute-workers.yml
-    Parameters:
-      AppId: !Ref AppId
-      Environment: !Ref Environment
-      VpcId: !GetAtt NetworkStack.Outputs.VpcId
-      SubnetId: !GetAtt NetworkStack.Outputs.SubnetId
-      SecurityGroupId: !GetAtt NetworkStack.Outputs.SecurityGroupId
-      TransportStorage: !Ref TransportStorage
-      ContentStorage: !Ref ContentStorage
-      MetadataStorageArn: !GetAtt MetadataStorage.Arn
+  WorkerStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: NetworkStack
+    Properties:
+      TemplateURL: compute-workers.yml
+      Parameters:
+        AppId: !Ref AppId
+        Environment: !Ref Environment
+        VpcId: !GetAtt NetworkStack.Outputs.VpcId
+        SubnetId: !GetAtt NetworkStack.Outputs.SubnetId
+        SecurityGroupId: !GetAtt NetworkStack.Outputs.SecurityGroupId
+        TransportStorage: !Ref TransportStorage
+        ContentStorage: !Ref ContentStorage
+        MetadataStorageArn: !GetAtt MetadataStorage.Arn
