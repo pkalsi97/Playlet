@@ -22,7 +22,11 @@
         "ts-node": "^10.9.2",
         "typescript": "^5.7.2"
     },
-    "scripts": {},
+    "scripts": {
+        "build": "tsc",
+        "clean": "rm -rf dist",
+        "prebuild": "npm run clean"
+    },
     "keywords": [],
     "author": "",
     "license": "ISC"

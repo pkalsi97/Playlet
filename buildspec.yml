@@ -15,8 +15,8 @@ phases:
   build:
     commands:
       - echo "Starting build..."
-      - rm -rf dist
-      - npx tsc
+      - npm run build
+      - cp -r dist IaC/cloudformation/dist
       - echo "Running CloudFormation package..."
       - aws cloudformation package --template IaC/cloudformation/master.yml --s3-bucket $S3_BUCKET --output-template-file packaged.yml
       - echo "✓ Build completed"
@@ -31,6 +31,7 @@ phases:
 artifacts:
   files:
     - packaged.yml
+    - IaC/**/*
     - dist/**/*
     - package.json
     - package-lock.json
