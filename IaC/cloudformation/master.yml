@@ -681,7 +681,7 @@ Resources:
   NetworkStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: ./packed-templates/network.yml
+      TemplateURL: network.yml
       Parameters:
         AppId: !Ref AppId
         Environment: !Ref Environment
@@ -692,7 +692,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     DependsOn: NetworkStack
     Properties:
-      TemplateURL: ./packed-templates/compute-workers.yml
+      TemplateURL: compute-workers.yml
       Parameters:
         AppId: !Ref AppId
         Environment: !Ref Environment
