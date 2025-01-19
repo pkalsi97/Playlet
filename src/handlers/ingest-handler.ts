@@ -1,8 +1,4 @@
 import {
-    ConditionalCheckFailedException
-} from '@aws-sdk/client-dynamodb'
-
-import {
     SQSClient,
     SendMessageCommand,
 } from '@aws-sdk/client-sqs'
@@ -87,7 +83,14 @@ export const ingestHandler = async(messages:SQSEvent):Promise<SQSBatchResponse> 
                                 Bucket:bucket,
                             }
 
-                            const task:Task = TaskCreator.createTask(userId,assetId,input,{},TaskType.TRANSCODE,WorkerType.PROCESSOR,);
+                            const task:Task = TaskCreator.createTask(
+                                userId,
+                                assetId,
+                                input,
+                                {},
+                                TaskType.TRANSCODE,
+                                WorkerType.PROCESSOR
+                            );
 
                             const command = new SendMessageCommand({
                                 QueueUrl:process.env.TASKQUEUE_QUEUE_URL!,
@@ -128,4 +131,4 @@ export const ingestHandler = async(messages:SQSEvent):Promise<SQSBatchResponse> 
     return {batchItemFailures};
 };
 
-// Pending Where to send Failed s3 events, how can they be managed
+// Pending -> Where to send Failed s3 events, how can they be managed ?
